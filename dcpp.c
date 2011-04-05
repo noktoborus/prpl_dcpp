@@ -24,8 +24,8 @@
 # define TODO2(X, Y) \
 	fprintf (stderr, "%s: %s -> %s (" X ")\n", __FILE__, __TIME__, __func__, Y)
 #else
-# define TODO
-# define TODO2
+# define TODO()
+# define TODO2(X, Y)
 #endif
 
 static GList*
@@ -160,9 +160,9 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 	GList *users;
 	GList *flags;
 	PurpleConversation *convy;
-	username = (char*)purple_account_get_username (gc->account);
+	username = (char*)purple_account_get_string (gc->account, "nick", "");
 	username_len = strlen (username);
-	chatname = username;
+	chatname = (char*)purple_account_get_username (gc->account);
 	convy = purple_find_conversation_with_account (
 			PURPLE_CONV_TYPE_CHAT, chatname, gc->account);
 	/* parse */
@@ -197,6 +197,7 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 							PURPLE_CONNECTION_ERROR_NETWORK_ERROR,
 							"Error send packet");
 				g_free (buffer);
+				dcpp_input_parse (gc, source, "$GetPass");
 			}
 		}
 		else
@@ -351,7 +352,6 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 						if (*message == '>' || *message == '\0')
 							break;
 					*message = '\0';
-							message3, message + 2);
 					serv_got_im (gc, message3, message + 2,
 							PURPLE_MESSAGE_RECV, time(NULL));
 				}
@@ -361,7 +361,7 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 	else
 	{
 		if (!convy)
-			return;
+			serv_got_joined_chat (gc, 0, chatname);
 		/* TODO2 ("%s", input); */
 		message3 = message = input;
 		if (input[0] == '<')
@@ -371,9 +371,14 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 				if (*message == '>' || *message == '\0')
 					break;
 			*message = '\0';
+			purple_conv_chat_write (PURPLE_CONV_CHAT (convy),
+					message3, message + 2, PURPLE_MESSAGE_RECV, time (NULL));
 		}
-		purple_conv_chat_write (PURPLE_CONV_CHAT (convy),
-				message3, message + 2, PURPLE_MESSAGE_RECV, time (NULL));
+		else
+		{
+			purple_conv_chat_write (PURPLE_CONV_CHAT (convy),
+					NULL, input, PURPLE_MESSAGE_SYSTEM, time (NULL));
+		}
 	}
 }
 
@@ -496,7 +501,7 @@ dcpp_login (PurpleAccount *account)
 	PurpleConnection *gc;
 	const char *username;
 	struct dcpp_t *dcpp;
-	username = purple_account_get_username (account);
+	username = purple_account_get_string (account, "nick", "");
 	gc = purple_account_get_connection (account);
 	purple_connection_update_progress (gc,"Connecting", 1, 3);
 
@@ -548,7 +553,7 @@ dcpp_send (PurpleConnection *gc, const char *who, const char *what)
 	if (!dcpp || dcpp->fd == -1)
 		return 0;
 	/* prepare */
-	username = (char*)purple_account_get_username (gc->account);
+	username = (char*)purple_account_get_string (gc->account, "nick", "");
 	username_len = strlen (username);
 	what_len = strlen (what);
 	charset = (char*)purple_account_get_string (gc->account, "charset", "UTF-8");
@@ -748,17 +753,20 @@ _init_plugin (PurplePlugin *plugin)
 	PurpleAccountOption *o;
 
 	o = purple_account_option_string_new ("Hub charset", "charset", "UTF-8");
-	prpl_info.protocol_options = g_list_append(prpl_info.protocol_options, o);
+	prpl_info.protocol_options = g_list_append (prpl_info.protocol_options, o);
+
+	o = purple_account_option_string_new ("Nick", "nick", "");
+	prpl_info.protocol_options = g_list_append (prpl_info.protocol_options, o);
 
 	o = purple_account_option_string_new ("Description", "description", "");
-	prpl_info.protocol_options = g_list_append(prpl_info.protocol_options, o);
+	prpl_info.protocol_options = g_list_append (prpl_info.protocol_options, o);
 
 	o = purple_account_option_string_new ("Server", "server",
 			"dc.vladlink.lan");
-	prpl_info.protocol_options = g_list_append(prpl_info.protocol_options, o);
+	prpl_info.protocol_options = g_list_append (prpl_info.protocol_options, o);
 
 	o = purple_account_option_int_new ("Port", "port", 4111);
-	prpl_info.protocol_options = g_list_append(prpl_info.protocol_options, o);
+	prpl_info.protocol_options = g_list_append (prpl_info.protocol_options, o);
 }
 
 PURPLE_INIT_PLUGIN (dcpp, _init_plugin, info)
