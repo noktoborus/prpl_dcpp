@@ -18,8 +18,15 @@
 
 #include "dcpp.h"
 
-#define TODO() fprintf (stderr, "%s: %s -> %s ()\n", __FILE__, __TIME__, __func__)
-#define TODO2(X, Y) fprintf (stderr, "%s: %s -> %s (" X ")\n", __FILE__, __TIME__, __func__, Y)
+#if DEBUG
+# define TODO() \
+	fprintf (stderr, "%s: %s -> %s ()\n", __FILE__, __TIME__, __func__)
+# define TODO2(X, Y) \
+	fprintf (stderr, "%s: %s -> %s (" X ")\n", __FILE__, __TIME__, __func__, Y)
+#else
+# define TODO
+# define TODO2
+#endif
 
 static GList*
 dcpp_status_types (PurpleAccount *account)
@@ -143,14 +150,22 @@ dcpp_extract_key (char *lock, int elen) {
 inline static void
 dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 {
-	char *message;
 	char *username;
+	char *message;
 	char *message3;
 	char *buffer;
+	char *chatname;
 	size_t end;
 	size_t username_len;
+	GList *users;
+	GList *flags;
+	PurpleConversation *convy;
 	username = (char*)purple_account_get_username (gc->account);
 	username_len = strlen (username);
+	chatname = username;
+	convy = purple_find_conversation_with_account (
+			PURPLE_CONV_TYPE_CHAT, chatname, gc->account);
+	/* parse */
 	/* TODO2 ("%s", input); */
 	if (input[0] == '$')
 	{
@@ -176,7 +191,7 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 						PURPLE_MAJOR_VERSION, PURPLE_MINOR_VERSION,
 						PURPLE_MICRO_VERSION, 1);
 				g_free (message);
-				fprintf (stderr, "b'%s'\n", buffer);
+				end = strlen (buffer);
 				if (write (source, buffer, end) != end)
 					purple_connection_error_reason (gc,
 							PURPLE_CONNECTION_ERROR_NETWORK_ERROR,
@@ -185,12 +200,66 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 			}
 		}
 		else
+		if (!strncmp ("$OpList ", input, 8))
+		{
+			if (!convy)
+				return;
+			message3 = message = &(input[8]);
+			while (message ++)
+			{
+				if (*message == '\0' || *(message + 1) == '\0')
+					break;
+				if (*message == '$'  && *(message + 1) == '$')
+				{
+					*message = '\0';
+					if (purple_conv_chat_find_user (PURPLE_CONV_CHAT (convy),
+								message3))
+					{
+						purple_conv_chat_user_set_flags (
+								PURPLE_CONV_CHAT (convy), message3,
+								PURPLE_CBFLAGS_OP);
+					}
+					message3 = message + 2;
+				}
+			}
+		}
+		else
+		if (!strncmp ("$NickList ", input, 10))
+		{
+			if (!convy)
+				return;
+			users = NULL;
+			flags = NULL;
+			purple_conv_chat_clear_users (PURPLE_CONV_CHAT (convy));
+			message3 = message = &(input[10]);
+			while (message ++)
+			{
+				if (*message == '\0' || *(message + 1) == '\0')
+					break;
+				if (*message == '$' && *(message + 1) == '$')
+				{
+					*message = '\0';
+					users = g_list_prepend (users, message3);
+					flags = g_list_prepend (flags,
+							GINT_TO_POINTER (PURPLE_CBFLAGS_VOICE));
+					message3 = message + 2;
+				}
+			}
+			if (users)
+			{
+				purple_conv_chat_add_users (PURPLE_CONV_CHAT (convy), users,
+						NULL, flags, FALSE);
+				g_list_free (users);
+			}
+		}
+		else
 		if (!strncmp ("$Hello ", input, 7))
 		{
 			if (!strcmp (username, &(input[7])))
 			{
-				fprintf (stderr, "AUTH_OK\n");
 				purple_connection_set_state (gc, PURPLE_CONNECTED);
+				if (!convy)
+					serv_got_joined_chat (gc, 0, chatname);
 			}
 		}
 		else
@@ -231,10 +300,80 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 					PURPLE_CONNECTION_ERROR_INVALID_USERNAME,
 					"Nick validation fail");
 		}
+		else
+		if (!strncmp ("$MyINFO $ALL ", input, 13))
+		{
+			message3 = message = &(input[13]);
+			while (message ++)
+			{
+				if (*message == ' ' || *message == '\0')
+					break;
+			}
+			*message = '\0';
+			if (!purple_conv_chat_find_user (PURPLE_CONV_CHAT (convy),
+						message3))
+			{
+				purple_conv_chat_add_user (PURPLE_CONV_CHAT (convy),
+						message3, NULL, PURPLE_CBFLAGS_VOICE, TRUE);
+			}
+		}
+		else
+		if (!strncmp ("$Quit ", input, 6))
+		{
+			if (!strcmp (username, &(input[6])))
+			{
+				purple_connection_error_reason (gc,
+						PURPLE_CONNECTION_ERROR_NETWORK_ERROR,
+						"Dropped from hub");
+			}
+			else
+			if (purple_conv_chat_find_user (PURPLE_CONV_CHAT (convy),
+						&(input[6])))
+			{
+				purple_conv_chat_remove_user (PURPLE_CONV_CHAT (convy),
+						&(input[6]), NULL);
+			}
+		}
+		else
+		if (!strncmp ("$To: ", input, 5))
+		{
+			message = &(input[5]);
+			while (++ message)
+				if (*message == '$' || *message == '\0')
+					break;
+			if (*message != '\0')
+			{
+				message ++;
+				if (*message == '<')
+				{
+					message3 = ++ message;
+					while (++ message)
+						if (*message == '>' || *message == '\0')
+							break;
+					*message = '\0';
+							message3, message + 2);
+					serv_got_im (gc, message3, message + 2,
+							PURPLE_MESSAGE_RECV, time(NULL));
+				}
+			}
+		}
 	}
 	else
 	{
-		/* message */
+		if (!convy)
+			return;
+		/* TODO2 ("%s", input); */
+		message3 = message = input;
+		if (input[0] == '<')
+		{
+			message3 = message = &(input[1]);
+			while (++ message)
+				if (*message == '>' || *message == '\0')
+					break;
+			*message = '\0';
+		}
+		purple_conv_chat_write (PURPLE_CONV_CHAT (convy),
+				message3, message + 2, PURPLE_MESSAGE_RECV, time (NULL));
 	}
 }
 
@@ -244,7 +383,10 @@ dcpp_input_cb (gpointer data, gint source, PurpleInputCondition cond)
 {
 	PurpleConnection *gc = data;
 	struct dcpp_t *dcpp = gc->proto_data;
+	char *tmp;
+	char *charset;
 	size_t lv;
+	size_t lve;
 	size_t offset;
 	size_t offsetl;
 	/* if connection close */
@@ -256,7 +398,8 @@ dcpp_input_cb (gpointer data, gint source, PurpleInputCondition cond)
 		return;
 	}
 	/* get strings */
-	lv = read (source, dcpp->inbuf, sizeof (dcpp->inbuf));
+	lv = read (source, dcpp->inbuf, DCPP_INPUT_SZ);
+	dcpp->inbuf[lv] = '\0';
 	if (lv == 0)
 	{
 		purple_connection_error_reason (gc,
@@ -270,13 +413,44 @@ dcpp_input_cb (gpointer data, gint source, PurpleInputCondition cond)
 	{
 		if (dcpp->inbuf[offset] == '|')
 		{
-			if ((dcpp->offset + (offset - offsetl)) &&
-					(dcpp->offset + (offset - offsetl)) < sizeof (dcpp->line))
+			lve = offset - offsetl;
+			/* resize string */
+			if (dcpp->offset + lv > dcpp->line_sz)
+			{
+				tmp = g_renew (char, dcpp->line,
+						dcpp->line_sz + DCPP_LINE_SZ + 1);
+				dcpp->line = tmp;
+			}
+			/* */
+			if (dcpp->offset + lve)
 			{
 				memcpy (&(dcpp->line[dcpp->offset]), &(dcpp->inbuf[offsetl]),
-						offset - offsetl);
-				dcpp->line[dcpp->offset + (offset - offsetl)] = '\0';
-				dcpp_input_parse (gc, source, dcpp->line);
+						lve);
+				dcpp->line[dcpp->offset + lve] = '\0';
+				/* convert input */
+				charset = (char*)purple_account_get_string (gc->account,
+						"charset", "UTF-8");
+				if (g_ascii_strcasecmp ("UTF-8", charset))
+				{
+					charset = g_convert_with_fallback (dcpp->line, -1, "UTF-8",
+							charset, NULL, NULL, NULL, NULL);
+					if (charset)
+					{
+						tmp = purple_utf8_salvage (charset);
+						g_free (charset);
+					}
+					else
+						tmp = purple_utf8_salvage (dcpp->line);
+				}
+				else
+					tmp = purple_utf8_salvage (dcpp->line);
+				/* execute process, if conversion success */
+				if (tmp)
+				{
+					dcpp_input_parse (gc, source, tmp);
+					/* free memory */
+					g_free (tmp);
+				}
 			}
 			dcpp->offset = 0;
 			offsetl = offset + 1;
@@ -285,17 +459,29 @@ dcpp_input_cb (gpointer data, gint source, PurpleInputCondition cond)
 	while (++ offset < lv);
 	if (offsetl < lv)
 	{
-		memcpy (&(dcpp->line[dcpp->offset]), &(dcpp->inbuf[offsetl]), lv - offsetl);
-		dcpp->offset = lv - offsetl;
+		lve = lv - offsetl;
+		if (dcpp->line_sz - dcpp->offset < lve)
+		{
+			tmp = g_renew (char, dcpp->line,
+					dcpp->line_sz + DCPP_LINE_SZ + 1);
+			dcpp->line = tmp;
+		}
+		memcpy (&(dcpp->line[dcpp->offset]), &(dcpp->inbuf[offsetl]), lve);
+		dcpp->offset += lve;
 	}
 }
 
 static void
 dcpp_login_cb (gpointer data, gint source, const gchar *error_message)
 {
+	struct dcpp_t *dcpp;
 	PurpleConnection *gc = data;
+	dcpp = gc->proto_data;
+	if (dcpp)
+		dcpp->fd = source;
 	purple_connection_update_progress (gc,"Login", 2, 3);
 	gc->inpa = purple_input_add (source, PURPLE_INPUT_READ, dcpp_input_cb, gc);
+
 	if (gc->inpa < 1)
 	{
 		purple_connection_error_reason (gc,
@@ -309,11 +495,17 @@ dcpp_login (PurpleAccount *account)
 {
 	PurpleConnection *gc;
 	const char *username;
+	struct dcpp_t *dcpp;
 	username = purple_account_get_username (account);
 	gc = purple_account_get_connection (account);
 	purple_connection_update_progress (gc,"Connecting", 1, 3);
 
-	gc->proto_data = g_new0 (struct dcpp_t, 1);
+	dcpp = g_new0 (struct dcpp_t, 1);
+	dcpp->line = g_new0 (char, DCPP_LINE_SZ + 1);
+	if (dcpp->line)
+		dcpp->line_sz = DCPP_LINE_SZ;
+	dcpp->fd = -1;
+	gc->proto_data = dcpp;
 
 	if (purple_proxy_connect (gc, account,
 				purple_account_get_string (account, "server", ""),
@@ -328,19 +520,81 @@ dcpp_login (PurpleAccount *account)
 static void
 dcpp_close(PurpleConnection *gc)
 {
-	if (gc->proto_data)
-		g_free (gc->proto_data);
+	struct dcpp_t *dcpp;
+	dcpp = gc->proto_data;
+	if (dcpp)
+	{
+		if (dcpp->line)
+			g_free (dcpp->line);
+		g_free (dcpp);
+	}
 	if (gc->inpa)
 		purple_input_remove (gc->inpa);
 	TODO ();
 }
 
 static int
+dcpp_send (PurpleConnection *gc, const char *who, const char *what)
+{
+	struct dcpp_t *dcpp;
+	char *username;
+	size_t username_len;
+	size_t what_len;
+	char *charset;
+	char *buffer;
+	char *tmp;
+	TODO ();
+	dcpp = gc->proto_data;
+	if (!dcpp || dcpp->fd == -1)
+		return 0;
+	/* prepare */
+	username = (char*)purple_account_get_username (gc->account);
+	username_len = strlen (username);
+	what_len = strlen (what);
+	charset = (char*)purple_account_get_string (gc->account, "charset", "UTF-8");
+	/* build */
+	if (!who)
+	{
+		what_len = what_len + 5 + username_len;
+		buffer = g_new0 (char, what_len);
+		snprintf (buffer, what_len, "<%s> %s|", username, what);
+	}
+	else
+	{
+		what_len = what_len + strlen (who) + 19 + (username_len * 2);
+		buffer = g_new0 (char, what_len);
+		snprintf (buffer, what_len, "$To: %s From: %s $<%s> %s|", who, username,
+				username, what);
+	}
+	if (g_ascii_strcasecmp ("UTF-8", charset))
+	{
+		tmp = g_convert_with_fallback (buffer, -1, charset, "UTF-8", NULL,
+				NULL, &what_len, NULL);
+	}
+	else
+		tmp = buffer;
+	/* send */
+	if (tmp)
+	{
+		if (write (dcpp->fd, tmp, what_len) != what_len)
+		{
+				purple_connection_error_reason (gc,
+						PURPLE_CONNECTION_ERROR_NETWORK_ERROR,
+						"Error send line");
+		}
+		/* free */
+		if (buffer != tmp);
+			g_free (tmp);
+	}
+	g_free (buffer);
+	return TRUE;
+}
+
+static int
 dcpp_im_send (PurpleConnection *gc, const char *who, const char *what,
 		PurpleMessageFlags flags)
 {
-	TODO ();
-	return TRUE;
+	return dcpp_send (gc, who, what);
 }
 
 static void
@@ -366,8 +620,7 @@ static int
 dcpp_chat_send (PurpleConnection *gc, int id, const char *what,
 		PurpleMessageFlags flags)
 {
-	TODO ();
-	return 0;
+	return dcpp_send (gc, NULL, what);
 }
 
 static void
@@ -494,7 +747,7 @@ _init_plugin (PurplePlugin *plugin)
 {
 	PurpleAccountOption *o;
 
-	o = purple_account_option_string_new ("Encodings", "encoding", "UTF-8");
+	o = purple_account_option_string_new ("Hub charset", "charset", "UTF-8");
 	prpl_info.protocol_options = g_list_append(prpl_info.protocol_options, o);
 
 	o = purple_account_option_string_new ("Description", "description", "");

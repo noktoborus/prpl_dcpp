@@ -4,10 +4,15 @@ CC=cc
 LIBS=$(shell pkg-config --cflags --libs purple glib-2.0)
 CFLAGS=-shared -fPIC -DPIC -Os
 ECFLAGS=-g -Wall -pedantic -std=c99
+BIN_DCPP=${HOME}/.purple/plugins/dcpp.so
 
-all: dcpp.so
-	cp -f $< ${HOME}/.purple/plugins
+.PHONY: all clean
 
-dcpp.so: dcpp.c
+all: ${BIN_DCPP}
+
+clean:
+	rm -rf ${BIN_DCPP}
+
+${BIN_DCPP}: dcpp.c
 	${CC} -o $@ ${LIBS} ${CFLAGS} ${ECFLAGS} $^
 
