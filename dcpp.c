@@ -390,8 +390,12 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 				if (*message == '>' || *message == '\0')
 					break;
 			*message = '\0';
+			buffer = purple_unescape_text (message + 2);
+			message = purple_markup_escape_text (buffer, -1);
 			purple_conv_chat_write (PURPLE_CONV_CHAT (convy),
-					message3, message + 2, PURPLE_MESSAGE_RECV, time (NULL));
+					message3, message, PURPLE_MESSAGE_RECV, time (NULL));
+			g_free (message);
+			g_free (buffer);
 		}
 		if (input[0] == '*')
 		{
@@ -406,9 +410,13 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 				end = strlen (message) + 5;
 				buffer = g_new0 (char, end);
 				snprintf (buffer, end, "/me %s", message);
-				purple_conv_chat_write (PURPLE_CONV_CHAT (convy), message3,
-						buffer, PURPLE_MESSAGE_RECV, time (NULL));
+				message = purple_unescape_text (buffer);
 				g_free (buffer);
+				buffer = purple_markup_escape_text (message, -1);
+				purple_conv_chat_write (PURPLE_CONV_CHAT (convy), message3,
+						message, PURPLE_MESSAGE_RECV, time (NULL));
+				g_free (buffer);
+				g_free (message);
 			}
 		}
 		else
@@ -582,9 +590,10 @@ dcpp_send (PurpleConnection *gc, const char *who, const char *what)
 	struct dcpp_t *dcpp;
 	char *username;
 	size_t username_len;
-	size_t what_len;
+	size_t text_len;
 	char *charset;
 	char *buffer;
+	char *text;
 	char *tmp;
 	TODO ();
 	dcpp = gc->proto_data;
@@ -593,34 +602,36 @@ dcpp_send (PurpleConnection *gc, const char *who, const char *what)
 	/* prepare */
 	username = (char*)purple_account_get_string (gc->account, "nick", "");
 	username_len = strlen (username);
-	what_len = strlen (what);
+	text = purple_unescape_html (what);
+	text_len = strlen (text);
 	charset = (char*)purple_account_get_string (gc->account, "charset",
 			"UTF-8");
 	/* build */
 	if (!who)
 	{
-		what_len = what_len + 5 + username_len;
-		buffer = g_new0 (char, what_len);
-		snprintf (buffer, what_len, "<%s> %s|", username, what);
+		text_len = text_len + 5 + username_len;
+		buffer = g_new0 (char, text_len);
+		snprintf (buffer, text_len, "<%s> %s|", username, text);
 	}
 	else
 	{
-		what_len = what_len + strlen (who) + 19 + (username_len * 2);
-		buffer = g_new0 (char, what_len);
-		snprintf (buffer, what_len, "$To: %s From: %s $<%s> %s|", who,
-				username, username, what);
+		text_len = text_len + strlen (who) + 19 + (username_len * 2);
+		buffer = g_new0 (char, text_len);
+		snprintf (buffer, text_len, "$To: %s From: %s $<%s> %s|", who,
+				username, username, text);
 	}
+	g_free (text);
 	if (g_ascii_strcasecmp ("UTF-8", charset))
 	{
 		tmp = g_convert_with_fallback (buffer, -1, charset, "UTF-8", NULL,
-				NULL, &what_len, NULL);
+				NULL, &text_len, NULL);
 	}
 	else
 		tmp = buffer;
 	/* send */
 	if (tmp)
 	{
-		if (write (dcpp->fd, tmp, what_len) != what_len)
+		if (write (dcpp->fd, tmp, text_len) != text_len)
 		{
 				purple_connection_error_reason (gc,
 						PURPLE_CONNECTION_ERROR_NETWORK_ERROR,
