@@ -23,6 +23,17 @@
 	fprintf (stderr, "%s: %s -> %s ()\n", __FILE__, __TIME__, __func__)
 # define TODO2(X, Y) \
 	fprintf (stderr, "%s: %s -> %s (" X ")\n", __FILE__, __TIME__, __func__, Y)
+
+size_t
+_write (int fd, char *buf, size_t len)
+{
+	size_t w;
+	w = write (fd, buf, len);
+	fprintf (stderr, "WRITE (%d, %p='%s', %u) -> %u\n", fd, (void*)buf, buf,
+			len, w);
+	return w;
+}
+# define write(X, Y, Z) _write (X, Y, Z)
 #else
 # define TODO()
 # define TODO2(X, Y)
@@ -178,26 +189,43 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 			message = dcpp_extract_key (&(input[6]), end);
 			if (message)
 			{
-				message3 = (char*)purple_account_get_string (gc->account,
-						"description", "");
-				end = strlen (message) + (username_len * 2) + 132;
+				end = strlen (message) + username_len + 22;
 				buffer = g_new0 (char, end);
-				snprintf (buffer, end, "$Key %s|$ValidateNick %s|"\
-						"$GetNickList|$Version 1.0091|"\
-						"$MyINFO $ALL %s %s"\
-						"<Pidgin V:%d.%d.%d,M:P,H:2/2/0,S:10>$ "\
-						"$20%c$.$53687091200$|", message,
-						username, username, message3,
-						PURPLE_MAJOR_VERSION, PURPLE_MINOR_VERSION,
-						PURPLE_MICRO_VERSION, 1);
+				snprintf (buffer, end, "$Key %s|$ValidateNick %s|",
+						message, username);
 				g_free (message);
 				end = strlen (buffer);
 				if (write (source, buffer, end) != end)
 					purple_connection_error_reason (gc,
 							PURPLE_CONNECTION_ERROR_NETWORK_ERROR,
-							"Error send packet");
+							"Error send Key");
 				g_free (buffer);
-				dcpp_input_parse (gc, source, "$GetPass");
+			}
+		}
+		else
+		if (!strncmp ("$Hello ", input, 7))
+		{
+			if (!strcmp (username, &(input[7])))
+			{
+				message3 = (char*)purple_account_get_string (gc->account,
+						"description", "");
+				end = strlen (message3) + username_len + 105;
+				buffer = g_new0 (char, end);
+				snprintf (buffer, end, "$Version 1.0091|$GetNickList|"\
+						"$MyINFO $ALL %s %s"\
+						"<Pidgin V:%d.%d.%d,M:P,H:2/2/0,S:10>$ $"\
+						"20%c$.$53687091200$|", username, message3,
+						PURPLE_MAJOR_VERSION, PURPLE_MINOR_VERSION,
+						PURPLE_MICRO_VERSION, 1);
+				end = strlen (buffer);
+				if (write (source, buffer, end) != end)
+					purple_connection_error_reason (gc,
+							PURPLE_CONNECTION_ERROR_NETWORK_ERROR,
+							"Error send MyINFO");
+				g_free (buffer);
+				purple_connection_set_state (gc, PURPLE_CONNECTED);
+				if (!convy || PURPLE_CONV_CHAT (convy)->left)
+					serv_got_joined_chat (gc, 0, chatname);
 			}
 		}
 		else
@@ -254,16 +282,6 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 			}
 		}
 		else
-		if (!strncmp ("$Hello ", input, 7))
-		{
-			if (!strcmp (username, &(input[7])))
-			{
-				purple_connection_set_state (gc, PURPLE_CONNECTED);
-				if (!convy)
-					serv_got_joined_chat (gc, 0, chatname);
-			}
-		}
-		else
 		if (!strncmp ("$HubName ", input, 9))
 		{
 		}
@@ -279,10 +297,11 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 					username_len += 10;
 					buffer = g_new (char, username_len);
 					snprintf (buffer, username_len, "$MyPass %s|", message3);
+					username_len = strlen (buffer);
 					if (write (source, buffer, username_len) != username_len)
 						purple_connection_error_reason (gc,
 								PURPLE_CONNECTION_ERROR_NETWORK_ERROR,
-								"Error send packet");
+								"Error send password");
 					g_free (buffer);
 				}
 			}
@@ -360,7 +379,7 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 	}
 	else
 	{
-		if (!convy)
+		if (!convy || PURPLE_CONV_CHAT (convy)->left)
 			serv_got_joined_chat (gc, 0, chatname);
 		/* TODO2 ("%s", input); */
 		message3 = message = input;
@@ -556,7 +575,8 @@ dcpp_send (PurpleConnection *gc, const char *who, const char *what)
 	username = (char*)purple_account_get_string (gc->account, "nick", "");
 	username_len = strlen (username);
 	what_len = strlen (what);
-	charset = (char*)purple_account_get_string (gc->account, "charset", "UTF-8");
+	charset = (char*)purple_account_get_string (gc->account, "charset",
+			"UTF-8");
 	/* build */
 	if (!who)
 	{
@@ -568,8 +588,8 @@ dcpp_send (PurpleConnection *gc, const char *who, const char *what)
 	{
 		what_len = what_len + strlen (who) + 19 + (username_len * 2);
 		buffer = g_new0 (char, what_len);
-		snprintf (buffer, what_len, "$To: %s From: %s $<%s> %s|", who, username,
-				username, what);
+		snprintf (buffer, what_len, "$To: %s From: %s $<%s> %s|", who,
+				username, username, what);
 	}
 	if (g_ascii_strcasecmp ("UTF-8", charset))
 	{
@@ -588,7 +608,7 @@ dcpp_send (PurpleConnection *gc, const char *who, const char *what)
 						"Error send line");
 		}
 		/* free */
-		if (buffer != tmp);
+		if (tmp != buffer)
 			g_free (tmp);
 	}
 	g_free (buffer);
