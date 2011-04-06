@@ -670,7 +670,21 @@ dcpp_chat_send (PurpleConnection *gc, int id, const char *what,
 static void
 dcpp_keepalive (PurpleConnection *gc)
 {
-	TODO ();
+	struct dcpp_t *dcpp;
+	dcpp = gc->proto_data;
+	if (!dcpp)
+		return;
+	if (dcpp->fd == -1)
+	{
+		purple_connection_error_reason (gc,
+				PURPLE_CONNECTION_ERROR_NETWORK_ERROR,
+				"Zero hub fd");
+		return;
+	}
+	if (!write (dcpp->fd, "|", 1))
+		purple_connection_error_reason (gc,
+				PURPLE_CONNECTION_ERROR_NETWORK_ERROR,
+				"Timeout");
 }
 
 static gboolean
