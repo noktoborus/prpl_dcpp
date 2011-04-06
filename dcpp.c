@@ -834,10 +834,6 @@ _init_plugin (PurplePlugin *plugin)
 	o = purple_account_option_string_new ("Description", "description", "");
 	prpl_info.protocol_options = g_list_append (prpl_info.protocol_options, o);
 
-	o = purple_account_option_string_new ("Server", "server",
-			"dc.vladlink.lan");
-	prpl_info.protocol_options = g_list_append (prpl_info.protocol_options, o);
-
 	o = purple_account_option_int_new ("Port", "port", 4111);
 	prpl_info.protocol_options = g_list_append (prpl_info.protocol_options, o);
 }
