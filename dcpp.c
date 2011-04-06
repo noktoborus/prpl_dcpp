@@ -170,8 +170,10 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 	size_t username_len;
 	GList *users;
 	GList *flags;
+	struct dcpp_t *dcpp;
 	PurpleConversation *convy;
-	username = (char*)purple_account_get_string (gc->account, "nick", "");
+	dcpp = gc->proto_data;
+	username = dcpp->user_server[0];
 	username_len = strlen (username);
 	chatname = (char*)purple_account_get_username (gc->account);
 	convy = purple_find_conversation_with_account (
@@ -547,19 +549,20 @@ dcpp_login (PurpleAccount *account)
 	PurpleConnection *gc;
 	const char *username;
 	struct dcpp_t *dcpp;
-	username = purple_account_get_string (account, "nick", "");
+	username = purple_account_get_username (account);
 	gc = purple_account_get_connection (account);
 	purple_connection_update_progress (gc,"Connecting", 1, 3);
 
 	dcpp = g_new0 (struct dcpp_t, 1);
+	dcpp->user_server = g_strsplit (username, "|", 2);
+	purple_connection_set_display_name (gc, dcpp->user_server[0]);
 	dcpp->line = g_new0 (char, DCPP_LINE_SZ + 1);
 	if (dcpp->line)
 		dcpp->line_sz = DCPP_LINE_SZ;
 	dcpp->fd = -1;
 	gc->proto_data = dcpp;
 
-	if (purple_proxy_connect (gc, account,
-				purple_account_get_string (account, "server", ""),
+	if (purple_proxy_connect (gc, account, dcpp->user_server[1],
 				purple_account_get_int (account, "port", 411), dcpp_login_cb,
 				gc) == NULL)
 	{
@@ -577,6 +580,8 @@ dcpp_close(PurpleConnection *gc)
 	{
 		if (dcpp->line)
 			g_free (dcpp->line);
+		if (dcpp->user_server)
+			g_strfreev (dcpp->user_server);
 		g_free (dcpp);
 	}
 	if (gc->inpa)
@@ -600,7 +605,7 @@ dcpp_send (PurpleConnection *gc, const char *who, const char *what)
 	if (!dcpp || dcpp->fd == -1)
 		return 0;
 	/* prepare */
-	username = (char*)purple_account_get_string (gc->account, "nick", "");
+	username = dcpp->user_server[0];
 	username_len = strlen (username);
 	text = purple_unescape_html (what);
 	text_len = strlen (text);
@@ -814,7 +819,11 @@ static PurplePluginInfo info =
 static void
 _init_plugin (PurplePlugin *plugin)
 {
+	PurpleAccountUserSplit *s;
 	PurpleAccountOption *o;
+
+	s = purple_account_user_split_new ("Server", "dc.vladlink.lan", '|');
+	prpl_info.user_splits = g_list_append (prpl_info.user_splits, s);
 
 	o = purple_account_option_string_new ("Hub charset", "charset", "UTF-8");
 	prpl_info.protocol_options = g_list_append (prpl_info.protocol_options, o);

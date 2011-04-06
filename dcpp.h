@@ -8,6 +8,7 @@
 #define DCPP_LINE_SZ 16384
 struct dcpp_t
 {
+	char **user_server;
 	char inbuf[DCPP_INPUT_SZ + 1];
 	char *line;
 	size_t line_sz;
