@@ -381,7 +381,7 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 	{
 		if (!convy || PURPLE_CONV_CHAT (convy)->left)
 			serv_got_joined_chat (gc, 0, chatname);
-		/* TODO2 ("%s", input); */
+		TODO2 ("%s", input);
 		message3 = message = input;
 		if (input[0] == '<')
 		{
@@ -393,10 +393,29 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 			purple_conv_chat_write (PURPLE_CONV_CHAT (convy),
 					message3, message + 2, PURPLE_MESSAGE_RECV, time (NULL));
 		}
+		if (input[0] == '*')
+		{
+			message3 = message = &(input[2]);
+			while (*(message ++))
+				if (*message == ' ')
+					break;
+			if (*message)
+			{
+				*message = '\0';
+				message ++;
+				end = strlen (message) + 5;
+				buffer = g_new0 (char, end);
+				snprintf (buffer, end, "/me %s", message);
+				purple_conv_chat_write (PURPLE_CONV_CHAT (convy), message3,
+						buffer, PURPLE_MESSAGE_RECV, time (NULL));
+				g_free (buffer);
+			}
+		}
 		else
 		{
 			purple_conv_chat_write (PURPLE_CONV_CHAT (convy),
-					NULL, input, PURPLE_MESSAGE_SYSTEM, time (NULL));
+					NULL, input, PURPLE_MESSAGE_SYSTEM | PURPLE_MESSAGE_RECV,
+					time (NULL));
 		}
 	}
 }
