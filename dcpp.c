@@ -75,12 +75,20 @@ dcpp_blist_icon (PurpleAccount *a, PurpleBuddy *b)
 static GList *
 dcpp_chat_join_info (PurpleConnection *gc)
 {
-	return NULL;
+	struct proto_chat_entry *pce;
+	/* code */
+	pce = g_new0 (struct proto_chat_entry, 1);
+	pce->label = "Channel";
+	pce->identifier = "channel";
+	pce->required = TRUE;
+	/* return */
+	return g_list_append (NULL, pce);
 }
 
 static GHashTable *
 dcpp_chat_info_defaults (PurpleConnection *gc, const char *chat_name)
 {
+	TODO2 ("%s", chat_name);
 	GHashTable *defaults;
 	defaults = g_hash_table_new_full(g_str_hash, g_str_equal, NULL, g_free);
 	if (chat_name != NULL)
@@ -173,6 +181,8 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 	struct dcpp_t *dcpp;
 	PurpleConversation *convy;
 	dcpp = gc->proto_data;
+	if (!dcpp || !(dcpp->user_server))
+		return;
 	username = dcpp->user_server[0];
 	username_len = strlen (username);
 	chatname = (char*)purple_account_get_username (gc->account);
@@ -209,14 +219,12 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 		{
 			if (!strcmp (username, &(input[7])))
 			{
-				message3 = (char*)purple_account_get_string (gc->account,
-						"description", "");
-				end = strlen (message3) + username_len + 105;
+				end = username_len + 105;
 				buffer = g_new0 (char, end);
 				snprintf (buffer, end, "$Version 1.0091|$GetNickList|"\
-						"$MyINFO $ALL %s %s"\
+						"$MyINFO $ALL %s "\
 						"<Pidgin V:%d.%d.%d,M:P,H:2/2/0,S:10>$ $"\
-						"20%c$.$53687091200$|", username, message3,
+						"20%c$.$53687091200$|", username,
 						PURPLE_MAJOR_VERSION, PURPLE_MINOR_VERSION,
 						PURPLE_MICRO_VERSION, 1);
 				end = strlen (buffer);
@@ -319,7 +327,7 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 		if (!strncmp ("$ValidateDenide", input, 15))
 		{
 			purple_connection_error_reason (gc,
-					PURPLE_CONNECTION_ERROR_INVALID_USERNAME,
+					PURPLE_CONNECTION_ERROR_NETWORK_ERROR,
 					"Nick validation fail");
 		}
 		else
@@ -383,7 +391,6 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 	{
 		if (!convy || PURPLE_CONV_CHAT (convy)->left)
 			serv_got_joined_chat (gc, 0, chatname);
-		TODO2 ("%s", input);
 		message3 = message = input;
 		if (input[0] == '<')
 		{
@@ -399,9 +406,10 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 			g_free (message);
 			g_free (buffer);
 		}
+		else
 		if (input[0] == '*')
 		{
-			message3 = message = &(input[2]);
+			message3 = message = &(input[3]);
 			while (*(message ++))
 				if (*message == ' ')
 					break;
@@ -423,6 +431,7 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 		}
 		else
 		{
+			TODO2 ("%s", input);
 			purple_conv_chat_write (PURPLE_CONV_CHAT (convy),
 					NULL, input, PURPLE_MESSAGE_SYSTEM | PURPLE_MESSAGE_RECV,
 					time (NULL));
@@ -529,6 +538,10 @@ dcpp_login_cb (gpointer data, gint source, const gchar *error_message)
 {
 	struct dcpp_t *dcpp;
 	PurpleConnection *gc = data;
+	if (source < 0)
+		purple_connection_error_reason (gc,
+				PURPLE_CONNECTION_ERROR_NETWORK_ERROR,
+				"Can't connect to server");
 	dcpp = gc->proto_data;
 	if (dcpp)
 		dcpp->fd = source;
@@ -576,6 +589,7 @@ dcpp_close(PurpleConnection *gc)
 {
 	struct dcpp_t *dcpp;
 	dcpp = gc->proto_data;
+	gc->proto_data = NULL;
 	if (dcpp)
 	{
 		if (dcpp->line)
@@ -584,8 +598,11 @@ dcpp_close(PurpleConnection *gc)
 			g_strfreev (dcpp->user_server);
 		g_free (dcpp);
 	}
-	if (gc->inpa)
+	if (gc->inpa > 0)
+	{
 		purple_input_remove (gc->inpa);
+		gc->inpa = 0;
+	}
 	TODO ();
 }
 
@@ -660,13 +677,19 @@ dcpp_im_send (PurpleConnection *gc, const char *who, const char *what,
 static void
 dcpp_chat_join (PurpleConnection *gc, GHashTable *data)
 {
-	TODO ();
+	PurpleConversation *convy;
+	char *chatname;
+	chatname = (char*)purple_account_get_username (gc->account);
+	convy = purple_find_conversation_with_account ( PURPLE_CONV_TYPE_CHAT,
+			chatname, gc->account);
+	if (!convy || PURPLE_CONV_CHAT (convy)->left)
+		serv_got_joined_chat (gc, 0, chatname);
 }
 
 static char *
 dcpp_get_chat_name (GHashTable *data)
 {
-	TODO ();
+	TODO2 ("%s", (char*)g_hash_table_lookup (data, "channel"));
 	return g_strdup(g_hash_table_lookup(data, "channel"));
 }
 
@@ -826,12 +849,6 @@ _init_plugin (PurplePlugin *plugin)
 	prpl_info.user_splits = g_list_append (prpl_info.user_splits, s);
 
 	o = purple_account_option_string_new ("Hub charset", "charset", "UTF-8");
-	prpl_info.protocol_options = g_list_append (prpl_info.protocol_options, o);
-
-	o = purple_account_option_string_new ("Nick", "nick", "");
-	prpl_info.protocol_options = g_list_append (prpl_info.protocol_options, o);
-
-	o = purple_account_option_string_new ("Description", "description", "");
 	prpl_info.protocol_options = g_list_append (prpl_info.protocol_options, o);
 
 	o = purple_account_option_int_new ("Port", "port", 4111);
