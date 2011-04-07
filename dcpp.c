@@ -721,6 +721,11 @@ dcpp_close(PurpleConnection *gc)
 			g_strfreev (dcpp->user_server);
 		if (dcpp->users)
 			g_list_foreach (dcpp->users, dcpp_list_users_free, NULL);
+		if (dcpp->fd >= 0)
+		{
+			close (dcpp->fd);
+			dcpp->fd = -1;
+		}
 		g_free (dcpp);
 	}
 	if (gc->inpa > 0)
