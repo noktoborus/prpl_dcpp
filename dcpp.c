@@ -66,6 +66,20 @@ dcpp_set_status (PurpleAccount *account, PurpleStatus *status)
 	TODO ();
 }
 
+static void
+dcpp_add_buddy (PurpleConnection *gc, PurpleBuddy *buddy, PurpleGroup *group)
+{
+	PurpleConversation *convy;
+	const char *bname = purple_buddy_get_name (buddy);
+	if (!bname)
+		return;
+	convy = purple_find_conversation_with_account (PURPLE_CONV_TYPE_CHAT, "#",
+			gc->account);
+	if (convy &&purple_conv_chat_user_get_flags (PURPLE_CONV_CHAT(convy),
+				bname))
+		purple_prpl_got_user_status (gc->account, bname, "available", NULL);
+}
+
 static const char*
 dcpp_blist_icon (PurpleAccount *a, PurpleBuddy *b)
 {
@@ -178,6 +192,7 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 	GList *users;
 	GList *flags;
 	struct dcpp_t *dcpp;
+	PurpleBuddy *buddy;
 	PurpleConversation *convy;
 	dcpp = gc->proto_data;
 	if (!dcpp || !(dcpp->user_server))
@@ -217,6 +232,7 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 		{
 			if (!strcmp (username, &(input[7])))
 			{
+				fprintf (stderr, "CAT HELLOE '%s'\n", input);
 				end = username_len + 105;
 				buffer = g_new0 (char, end);
 				snprintf (buffer, end, "$Version 1.0091|$GetNickList|"\
@@ -279,6 +295,11 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 					users = g_list_prepend (users, message3);
 					flags = g_list_prepend (flags,
 							GINT_TO_POINTER (PURPLE_CBFLAGS_VOICE));
+					/* set up user in roaster */
+					if (purple_find_buddy (gc->account, message3))
+						purple_prpl_got_user_status (gc->account, message3,
+								"available", NULL);
+					/* update ptr */
 					message3 = message + 2;
 				}
 			}
@@ -341,25 +362,36 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 			if (!purple_conv_chat_find_user (PURPLE_CONV_CHAT (convy),
 						message3))
 			{
+				/* add user to chat list */
 				purple_conv_chat_add_user (PURPLE_CONV_CHAT (convy),
 						message3, NULL, PURPLE_CBFLAGS_VOICE, TRUE);
+				/* set up user in roaster */
+				if (purple_find_buddy (gc->account, message3))
+					purple_prpl_got_user_status (gc->account, message3,
+							"available", NULL);
 			}
 		}
 		else
 		if (!strncmp ("$Quit ", input, 6))
 		{
-			if (!strcmp (username, &(input[6])))
+			message = &(input[6]);
+			if (!strcmp (username, message))
 			{
 				purple_connection_error_reason (gc,
 						PURPLE_CONNECTION_ERROR_NETWORK_ERROR,
 						"Dropped from hub");
 			}
 			else
-			if (purple_conv_chat_find_user (PURPLE_CONV_CHAT (convy),
-						&(input[6])))
+			if (purple_conv_chat_find_user (PURPLE_CONV_CHAT (convy), message))
 			{
+				/* remove user from chat */
 				purple_conv_chat_remove_user (PURPLE_CONV_CHAT (convy),
-						&(input[6]), NULL);
+						message, NULL);
+				/* set user offline in roster */
+				buddy = purple_find_buddy (gc->account, message);
+				if (buddy)
+					purple_prpl_got_user_status (gc->account, message,
+							"offline", NULL);
 			}
 		}
 		else
@@ -670,6 +702,13 @@ static int
 dcpp_im_send (PurpleConnection *gc, const char *who, const char *what,
 		PurpleMessageFlags flags)
 {
+	PurpleConversation *convy;
+	convy = purple_find_conversation_with_account (PURPLE_CONV_TYPE_CHAT, "#",
+			gc->account);
+	if (!convy)
+		return 0;
+	if (!purple_conv_chat_user_get_flags (PURPLE_CONV_CHAT(convy), who))
+		return 0;
 	return dcpp_send (gc, who, what);
 }
 
@@ -752,7 +791,7 @@ static PurplePluginProtocolInfo prpl_info =
 	dcpp_set_status,		/* set_status */
 	NULL,					/* set_idle */
 	NULL,					/* change_passwd */
-	NULL,		/* add_buddy */
+	dcpp_add_buddy,		/* add_buddy */
 	NULL,					/* add_buddies */
 	NULL,	/* remove_buddy */
 	NULL,					/* remove_buddies */
