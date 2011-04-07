@@ -338,7 +338,6 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 					message3 = message + 2;
 				}
 			}
-					(void*)dcpp->flags);
 			/* update UI list, if present */
 			if (!convy)
 				return;
