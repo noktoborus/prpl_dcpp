@@ -15,8 +15,14 @@
 #include <libpurple/account.h>
 #include <libpurple/version.h>
 #include <libpurple/accountopt.h>
+#include <libpurple/core.h>
 
 #include "dcpp.h"
+
+#define _PURPLE_VERSION_STR_(X, Y, Z) #X "." #Y "." #Z
+#define _PURPLE_VERSION_STR \
+	_PURPLE_VERSION_STR_ (PURPLE_MAJOR_VERSION, PURPLE_MINOR_VERSION,\
+			PURPLE_MICRO_VERSION)
 
 #if DEBUG
 # define TODO() \
@@ -205,6 +211,7 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 	struct dcpp_t *dcpp;
 	gint position;
 	GList *temp;
+	GHashTable *htemp;
 	PurpleConversation *convy;
 	dcpp = gc->proto_data;
 	if (!dcpp || !(dcpp->user_server))
@@ -244,14 +251,24 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 		{
 			if (!strcmp (username, &(input[7])))
 			{
-				end = username_len + 105;
+				htemp = purple_core_get_ui_info ();
+				if (htemp)
+				{
+					message = g_hash_table_lookup (htemp, "name");
+					message3 = g_hash_table_lookup (htemp, "version");
+				}
+				if (!message)
+					message = "libpurple";
+				if (!message3)
+					message3 = _PURPLE_VERSION_STR;
+				end = username_len + 105 + strlen (message) +
+					strlen (message3);
 				buffer = g_new0 (char, end);
 				snprintf (buffer, end, "$Version 1.0091|$GetNickList|"\
 						"$MyINFO $ALL %s "\
-						"<Pidgin V:%d.%d.%d,M:P,H:2/2/0,S:10>$ $"\
-						"20%c$.$53687091200$|", username,
-						PURPLE_MAJOR_VERSION, PURPLE_MINOR_VERSION,
-						PURPLE_MICRO_VERSION, 1);
+						"<%s V:%s,M:P,H:2/2/0,S:10>$ $"\
+						"20%c$.$53687091200$|", username, message, message3,
+						1);
 				end = strlen (buffer);
 				if (write (source, buffer, end) != end)
 					purple_connection_error_reason (gc,
