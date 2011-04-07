@@ -407,7 +407,8 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 		else
 		if (input[0] == '*')
 		{
-			message3 = message = &(input[3]);
+			message3 = message = &(input[2]);
+			while (*message3 == ' ') message3 ++;
 			while (*(message ++))
 				if (*message == ' ')
 					break;
