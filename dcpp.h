@@ -11,6 +11,8 @@ struct dcpp_t
 	char **user_server;
 	char inbuf[DCPP_INPUT_SZ + 1];
 	char *line;
+	GList *users;
+	GList *flags;
 	size_t line_sz;
 	size_t offset;
 	int fd;

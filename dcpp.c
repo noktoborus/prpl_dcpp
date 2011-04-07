@@ -179,6 +179,19 @@ dcpp_extract_key (char *lock, int elen) {
 	return key_o;
 }
 
+static gint
+dcpp_list_users_cmp (gconstpointer a, gconstpointer b)
+{
+	return strcmp ((char*)a, (char*)b);
+}
+
+static void
+dcpp_list_users_free (gpointer data, gpointer user_data)
+{
+	if (data)
+		g_free (data);
+}
+
 /* parse DC++ traffic */
 inline static void
 dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
@@ -189,10 +202,9 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 	char *buffer;
 	size_t end;
 	size_t username_len;
-	GList *users;
-	GList *flags;
 	struct dcpp_t *dcpp;
-	PurpleBuddy *buddy;
+	gint position;
+	GList *temp;
 	PurpleConversation *convy;
 	dcpp = gc->proto_data;
 	if (!dcpp || !(dcpp->user_server))
@@ -202,7 +214,7 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 	convy = purple_find_conversation_with_account (
 			PURPLE_CONV_TYPE_CHAT, "#", gc->account);
 	/* parse */
-	/* TODO2 ("%s", input); */
+	TODO2 ("%s", input);
 	if (input[0] == '$')
 	{
 		/* CMD */
@@ -232,7 +244,6 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 		{
 			if (!strcmp (username, &(input[7])))
 			{
-				fprintf (stderr, "CAT HELLOE '%s'\n", input);
 				end = username_len + 105;
 				buffer = g_new0 (char, end);
 				snprintf (buffer, end, "$Version 1.0091|$GetNickList|"\
@@ -248,14 +259,14 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 							"Error send MyINFO");
 				g_free (buffer);
 				purple_connection_set_state (gc, PURPLE_CONNECTED);
-				if (!convy || PURPLE_CONV_CHAT (convy)->left)
+				if (convy && PURPLE_CONV_CHAT (convy)->left)
 					serv_got_joined_chat (gc, 0, "#");
 			}
 		}
 		else
 		if (!strncmp ("$OpList ", input, 8))
 		{
-			if (!convy)
+			if (!dcpp->users && !dcpp->flags)
 				return;
 			message3 = message = &(input[8]);
 			while (message ++)
@@ -265,13 +276,27 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 				if (*message == '$'  && *(message + 1) == '$')
 				{
 					*message = '\0';
-					if (purple_conv_chat_find_user (PURPLE_CONV_CHAT (convy),
-								message3))
+					/* update lists */
+					temp = g_list_find_custom (dcpp->users, message3,
+							dcpp_list_users_cmp);
+					if (temp)
 					{
-						purple_conv_chat_user_set_flags (
-								PURPLE_CONV_CHAT (convy), message3,
-								PURPLE_CBFLAGS_OP);
+						position = g_list_index (dcpp->users, temp->data);
+						temp = g_list_nth (dcpp->flags, position);
+						temp->data = GINT_TO_POINTER (PURPLE_CBFLAGS_OP);
 					}
+					/* update UI list, if present */
+					if (convy)
+					{
+						if (purple_conv_chat_find_user (
+									PURPLE_CONV_CHAT (convy), message3))
+						{
+							purple_conv_chat_user_set_flags (
+									PURPLE_CONV_CHAT (convy), message3,
+									PURPLE_CBFLAGS_OP);
+						}
+					}
+					/* update ptr to next nick */
 					message3 = message + 2;
 				}
 			}
@@ -279,36 +304,48 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 		else
 		if (!strncmp ("$NickList ", input, 10))
 		{
-			if (!convy)
-				return;
-			users = NULL;
-			flags = NULL;
-			purple_conv_chat_clear_users (PURPLE_CONV_CHAT (convy));
-			message3 = message = &(input[10]);
-			while (message ++)
+			/* clear old data */
+			if (dcpp->users)
 			{
-				if (*message == '\0' || *(message + 1) == '\0')
+				g_list_foreach (dcpp->users, dcpp_list_users_free, NULL);
+				g_list_free (dcpp->users);
+				dcpp->users = NULL;
+			}
+			if (dcpp->flags)
+			{
+				g_list_free (dcpp->flags);
+				dcpp->flags = NULL;
+			}
+			/* parse input */
+			message3 = message = &(input[10]);
+			while (*(++ message) != '\0')
+			{
+				if (*(message + 1) == '\0')
 					break;
 				if (*message == '$' && *(message + 1) == '$')
 				{
 					*message = '\0';
-					users = g_list_prepend (users, message3);
-					flags = g_list_prepend (flags,
+					/* and feel lists */
+					dcpp->users = g_list_prepend (dcpp->users,
+							g_strdup (message3));
+					dcpp->flags = g_list_prepend (dcpp->flags,
 							GINT_TO_POINTER (PURPLE_CBFLAGS_VOICE));
-					/* set up user in roaster */
+					/* setup buddy in roaster (if need) */
 					if (purple_find_buddy (gc->account, message3))
 						purple_prpl_got_user_status (gc->account, message3,
 								"available", NULL);
-					/* update ptr */
+					/* update ptr to next node */
 					message3 = message + 2;
 				}
 			}
-			if (users)
-			{
-				purple_conv_chat_add_users (PURPLE_CONV_CHAT (convy), users,
-						NULL, flags, FALSE);
-				g_list_free (users);
-			}
+					(void*)dcpp->flags);
+			/* update UI list, if present */
+			if (!convy)
+				return;
+			purple_conv_chat_clear_users (PURPLE_CONV_CHAT (convy));
+			if (dcpp->users && dcpp->flags)
+				purple_conv_chat_add_users (PURPLE_CONV_CHAT (convy),
+						dcpp->users, NULL, dcpp->flags, FALSE);
 		}
 		else
 		if (!strncmp ("$HubName ", input, 9))
@@ -352,28 +389,42 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 		else
 		if (!strncmp ("$MyINFO $ALL ", input, 13))
 		{
+			if (!dcpp->users || !dcpp->flags)
+				return;
+			/* fix ptrs */
 			message3 = message = &(input[13]);
-			while (message ++)
-			{
-				if (*message == ' ' || *message == '\0')
+			while (*(++ message))
+				if (*message == ' ')
 					break;
-			}
 			*message = '\0';
+			/* update lists */
+			if (!g_list_find_custom (dcpp->users, message3,
+						dcpp_list_users_cmp))
+			{
+				dcpp->users = g_list_prepend (dcpp->users,
+						g_strdup (message3));
+				dcpp->flags = g_list_prepend (dcpp->flags,
+						GINT_TO_POINTER (PURPLE_CBFLAGS_VOICE));
+			}
+			/* update roster */
+			if (purple_find_buddy (gc->account, message3))
+				purple_prpl_got_user_status (gc->account, message3,
+						"available", NULL);
+			/* update UI list, if present */
+			if (!convy)
+				return;
 			if (!purple_conv_chat_find_user (PURPLE_CONV_CHAT (convy),
 						message3))
 			{
 				/* add user to chat list */
 				purple_conv_chat_add_user (PURPLE_CONV_CHAT (convy),
 						message3, NULL, PURPLE_CBFLAGS_VOICE, TRUE);
-				/* set up user in roaster */
-				if (purple_find_buddy (gc->account, message3))
-					purple_prpl_got_user_status (gc->account, message3,
-							"available", NULL);
 			}
 		}
 		else
 		if (!strncmp ("$Quit ", input, 6))
 		{
+			/* fix ptrs */
 			message = &(input[6]);
 			if (!strcmp (username, message))
 			{
@@ -382,16 +433,34 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 						"Dropped from hub");
 			}
 			else
-			if (purple_conv_chat_find_user (PURPLE_CONV_CHAT (convy), message))
 			{
-				/* remove user from chat */
-				purple_conv_chat_remove_user (PURPLE_CONV_CHAT (convy),
-						message, NULL);
-				/* set user offline in roster */
-				buddy = purple_find_buddy (gc->account, message);
-				if (buddy)
+				/* update lists */
+				temp = g_list_find_custom (dcpp->users, message,
+						dcpp_list_users_cmp);
+				if (temp)
+				{
+					position = g_list_index (dcpp->users, temp->data);
+					temp = g_list_nth (dcpp->flags, position);
+					dcpp->flags = g_list_remove (dcpp->flags, temp->data);
+					temp = g_list_nth (dcpp->users, position);
+					buffer = temp->data;
+					dcpp->users = g_list_remove (dcpp->users, temp->data);
+					g_free (buffer);
+				}
+				/* update roaster */
+				if (purple_find_buddy (gc->account, message))
 					purple_prpl_got_user_status (gc->account, message,
 							"offline", NULL);
+				/* update UI list, if present */
+				if (!convy)
+					return;
+				if(purple_conv_chat_find_user (PURPLE_CONV_CHAT (convy),
+							message))
+				{
+					/* remove user from chat */
+					purple_conv_chat_remove_user (PURPLE_CONV_CHAT (convy),
+							message, NULL);
+				}
 			}
 		}
 		else
@@ -419,8 +488,11 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 	}
 	else
 	{
-		if (!convy || PURPLE_CONV_CHAT (convy)->left)
+		if (convy && PURPLE_CONV_CHAT (convy)->left)
 			serv_got_joined_chat (gc, 0, "#");
+		else
+		if (!convy)
+			return;
 		message3 = message = input;
 		if (input[0] == '<')
 		{
@@ -555,9 +627,11 @@ dcpp_input_cb (gpointer data, gint source, PurpleInputCondition cond)
 		lve = lv - offsetl;
 		if (dcpp->line_sz - dcpp->offset < lve)
 		{
-			tmp = g_renew (char, dcpp->line,
-					dcpp->line_sz + DCPP_LINE_SZ + 1);
+			tmp = g_new (char, dcpp->line_sz + DCPP_LINE_SZ + 1);
+			memcpy (tmp, dcpp->line, dcpp->line_sz);
+			g_free (dcpp->line);
 			dcpp->line = tmp;
+			dcpp->line_sz += DCPP_LINE_SZ;
 		}
 		memcpy (&(dcpp->line[dcpp->offset]), &(dcpp->inbuf[offsetl]), lve);
 		dcpp->offset += lve;
@@ -604,6 +678,8 @@ dcpp_login (PurpleAccount *account)
 	if (dcpp->line)
 		dcpp->line_sz = DCPP_LINE_SZ;
 	dcpp->fd = -1;
+	dcpp->users = NULL;
+	dcpp->flags = NULL;
 	gc->proto_data = dcpp;
 
 	if (purple_proxy_connect (gc, account, dcpp->user_server[1],
@@ -627,6 +703,8 @@ dcpp_close(PurpleConnection *gc)
 			g_free (dcpp->line);
 		if (dcpp->user_server)
 			g_strfreev (dcpp->user_server);
+		if (dcpp->users)
+			g_list_foreach (dcpp->users, dcpp_list_users_free, NULL);
 		g_free (dcpp);
 	}
 	if (gc->inpa > 0)
@@ -702,12 +780,11 @@ static int
 dcpp_im_send (PurpleConnection *gc, const char *who, const char *what,
 		PurpleMessageFlags flags)
 {
-	PurpleConversation *convy;
-	convy = purple_find_conversation_with_account (PURPLE_CONV_TYPE_CHAT, "#",
-			gc->account);
-	if (!convy)
+	struct dcpp_t *dcpp;
+	dcpp = gc->proto_data;
+	if (!dcpp || !dcpp->users)
 		return 0;
-	if (!purple_conv_chat_user_get_flags (PURPLE_CONV_CHAT(convy), who))
+	if (!g_list_find_custom (dcpp->users, who, dcpp_list_users_cmp))
 		return 0;
 	return dcpp_send (gc, who, what);
 }
@@ -716,10 +793,24 @@ static void
 dcpp_chat_join (PurpleConnection *gc, GHashTable *data)
 {
 	PurpleConversation *convy;
+	struct dcpp_t *dcpp = gc->proto_data;
 	convy = purple_find_conversation_with_account ( PURPLE_CONV_TYPE_CHAT,
 			"#", gc->account);
+	/* open chat pane */
 	if (!convy || PURPLE_CONV_CHAT (convy)->left)
 		serv_got_joined_chat (gc, 0, "#");
+	/* update UI list */
+	if (dcpp && dcpp->users && dcpp->flags)
+	{
+		convy = purple_find_conversation_with_account ( PURPLE_CONV_TYPE_CHAT,
+				"#", gc->account);
+		if (convy)
+		{
+			purple_conv_chat_clear_users (PURPLE_CONV_CHAT (convy));
+			purple_conv_chat_add_users (PURPLE_CONV_CHAT (convy), dcpp->users,
+					NULL, dcpp->flags, FALSE);
+		}
+	}
 }
 
 static char *
