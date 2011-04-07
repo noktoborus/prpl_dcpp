@@ -173,7 +173,6 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 	char *message;
 	char *message3;
 	char *buffer;
-	char *chatname;
 	size_t end;
 	size_t username_len;
 	GList *users;
@@ -185,9 +184,8 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 		return;
 	username = dcpp->user_server[0];
 	username_len = strlen (username);
-	chatname = (char*)purple_account_get_username (gc->account);
 	convy = purple_find_conversation_with_account (
-			PURPLE_CONV_TYPE_CHAT, chatname, gc->account);
+			PURPLE_CONV_TYPE_CHAT, "#", gc->account);
 	/* parse */
 	/* TODO2 ("%s", input); */
 	if (input[0] == '$')
@@ -235,7 +233,7 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 				g_free (buffer);
 				purple_connection_set_state (gc, PURPLE_CONNECTED);
 				if (!convy || PURPLE_CONV_CHAT (convy)->left)
-					serv_got_joined_chat (gc, 0, chatname);
+					serv_got_joined_chat (gc, 0, "#");
 			}
 		}
 		else
@@ -390,7 +388,7 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 	else
 	{
 		if (!convy || PURPLE_CONV_CHAT (convy)->left)
-			serv_got_joined_chat (gc, 0, chatname);
+			serv_got_joined_chat (gc, 0, "#");
 		message3 = message = input;
 		if (input[0] == '<')
 		{
@@ -678,12 +676,10 @@ static void
 dcpp_chat_join (PurpleConnection *gc, GHashTable *data)
 {
 	PurpleConversation *convy;
-	char *chatname;
-	chatname = (char*)purple_account_get_username (gc->account);
 	convy = purple_find_conversation_with_account ( PURPLE_CONV_TYPE_CHAT,
-			chatname, gc->account);
+			"#", gc->account);
 	if (!convy || PURPLE_CONV_CHAT (convy)->left)
-		serv_got_joined_chat (gc, 0, chatname);
+		serv_got_joined_chat (gc, 0, "#");
 }
 
 static char *
@@ -845,13 +841,13 @@ _init_plugin (PurplePlugin *plugin)
 	PurpleAccountUserSplit *s;
 	PurpleAccountOption *o;
 
-	s = purple_account_user_split_new ("Server", "dc.vladlink.lan", '|');
+	s = purple_account_user_split_new ("Server", "mychillhub.com", '|');
 	prpl_info.user_splits = g_list_append (prpl_info.user_splits, s);
 
 	o = purple_account_option_string_new ("Hub charset", "charset", "UTF-8");
 	prpl_info.protocol_options = g_list_append (prpl_info.protocol_options, o);
 
-	o = purple_account_option_int_new ("Port", "port", 4111);
+	o = purple_account_option_int_new ("Port", "port", 411);
 	prpl_info.protocol_options = g_list_append (prpl_info.protocol_options, o);
 }
 
