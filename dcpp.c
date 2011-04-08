@@ -694,8 +694,6 @@ dcpp_login (PurpleAccount *account)
 	if (dcpp->line)
 		dcpp->line_sz = DCPP_LINE_SZ;
 	dcpp->fd = -1;
-	dcpp->users = NULL;
-	dcpp->flags = NULL;
 	gc->proto_data = dcpp;
 
 	if (purple_proxy_connect (gc, account, dcpp->user_server[1],
@@ -716,11 +714,26 @@ dcpp_close(PurpleConnection *gc)
 	if (dcpp)
 	{
 		if (dcpp->line)
+		{
 			g_free (dcpp->line);
+			dcpp->line = NULL;
+		}
 		if (dcpp->user_server)
+		{
 			g_strfreev (dcpp->user_server);
+			dcpp->user_server = NULL;
+		}
 		if (dcpp->users)
+		{
 			g_list_foreach (dcpp->users, dcpp_list_users_free, NULL);
+			g_list_free (dcpp->users);
+			dcpp->users = NULL;
+		}
+		if (dcpp->flags)
+		{
+			g_list_free (dcpp->flags);
+			dcpp->flags = NULL;
+		}
 		if (dcpp->fd >= 0)
 		{
 			close (dcpp->fd);
