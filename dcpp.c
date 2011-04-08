@@ -17,8 +17,6 @@
 #include <libpurple/accountopt.h>
 #include <libpurple/core.h>
 
-#include "dcpp.h"
-
 #define _PURPLE_VERSION_STR_(X, Y, Z) #X "." #Y "." #Z
 #define _PURPLE_VERSION_STR \
 	_PURPLE_VERSION_STR_ (PURPLE_MAJOR_VERSION, PURPLE_MINOR_VERSION,\
@@ -44,6 +42,20 @@ _write (int fd, char *buf, size_t len)
 # define TODO()
 # define TODO2(X, Y)
 #endif
+
+#define DCPP_INPUT_SZ 1024
+#define DCPP_LINE_SZ 16384
+struct dcpp_t
+{
+	char **user_server;
+	char inbuf[DCPP_INPUT_SZ + 1];
+	char *line;
+	GList *users;
+	GList *flags;
+	size_t line_sz;
+	size_t offset;
+	int fd;
+}
 
 static GList*
 dcpp_status_types (PurpleAccount *account)
