@@ -614,7 +614,7 @@ dcpp_input_cb (gpointer data, gint source, PurpleInputCondition cond)
 				if (g_ascii_strcasecmp ("UTF-8", charset))
 				{
 					charset = g_convert_with_fallback (dcpp->line, -1, "UTF-8",
-							charset, NULL, NULL, NULL, NULL);
+							charset, "?", NULL, NULL, NULL);
 					if (charset)
 					{
 						tmp = purple_utf8_salvage (charset);
@@ -821,7 +821,7 @@ dcpp_send (PurpleConnection *gc, const char *who, const char *what)
 	g_free (text);
 	if (g_ascii_strcasecmp ("UTF-8", charset))
 	{
-		tmp = g_convert_with_fallback (buffer, -1, charset, "UTF-8", NULL,
+		tmp = g_convert_with_fallback (buffer, -1, charset, "UTF-8", "?",
 				NULL, &text_len, NULL);
 	}
 	else
