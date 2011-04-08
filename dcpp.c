@@ -55,7 +55,7 @@ struct dcpp_t
 	size_t line_sz;
 	size_t offset;
 	int fd;
-}
+};
 
 static GList*
 dcpp_status_types (PurpleAccount *account)
