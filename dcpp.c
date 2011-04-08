@@ -221,7 +221,7 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 	convy = purple_find_conversation_with_account (
 			PURPLE_CONV_TYPE_CHAT, "#", gc->account);
 	/* parse */
-	TODO2 ("%s", input);
+	/* TODO2 ("%s", input); */
 	if (input[0] == '$')
 	{
 		/* CMD */
@@ -749,6 +749,39 @@ dcpp_close(PurpleConnection *gc)
 	TODO ();
 }
 
+inline static char*
+dcpp_send_escape (char *message)
+{
+	size_t count = 0;
+	size_t offset = 0;
+	char *new = NULL;
+	char *convs;
+	message = convs = purple_unescape_html (message);
+	for (count = 0, new = message; *new; new ++)
+		if (*new == '|' || *new == '$')
+			count ++;
+	if (count)
+	{
+		count = strlen (message) + count * 6 + 1;
+		new = g_new0 (char, count + 1);
+		for (offset = 0; *message; message ++)
+		{
+			if (*message == '|' || *message == '$')
+			{
+				snprintf (&(new[offset]), count, "&#%d;", *message);
+				offset = strlen (new);
+			}
+			else
+				new[offset ++] = *message;
+		}
+		new[offset] = '\0';
+		g_free (convs);
+	}
+	else
+		new = message;
+	return new;
+}
+
 static int
 dcpp_send (PurpleConnection *gc, const char *who, const char *what)
 {
@@ -767,7 +800,7 @@ dcpp_send (PurpleConnection *gc, const char *who, const char *what)
 	/* prepare */
 	username = dcpp->user_server[0];
 	username_len = strlen (username);
-	text = purple_unescape_html (what);
+	text = dcpp_send_escape ((char*)what);
 	text_len = strlen (text);
 	charset = (char*)purple_account_get_string (gc->account, "charset",
 			"UTF-8");
