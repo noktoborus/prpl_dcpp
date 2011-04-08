@@ -30,12 +30,12 @@
 # define TODO2(X, Y) \
 	fprintf (stderr, "%s: %s -> %s (" X ")\n", __FILE__, __TIME__, __func__, Y)
 
-size_t
+ssize_t
 _write (int fd, char *buf, size_t len)
 {
-	size_t w;
+	ssize_t w;
 	w = write (fd, buf, len);
-	fprintf (stderr, "WRITE (%d, %p='%s', %u) -> %u\n", fd, (void*)buf, buf,
+	fprintf (stderr, "WRITE (%d, %p='%s', %u) -> %d\n", fd, (void*)buf, buf,
 			len, w);
 	return w;
 }
@@ -214,6 +214,9 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 	GHashTable *htemp;
 	PurpleConversation *convy;
 	dcpp = gc->proto_data;
+	/*
+	TODO2 ("%s", input);
+	*/
 	if (!dcpp || !(dcpp->user_server))
 		return;
 	username = dcpp->user_server[0];
@@ -221,7 +224,6 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 	convy = purple_find_conversation_with_account (
 			PURPLE_CONV_TYPE_CHAT, "#", gc->account);
 	/* parse */
-	/* TODO2 ("%s", input); */
 	if (input[0] == '$')
 	{
 		/* CMD */
@@ -566,7 +568,7 @@ dcpp_input_cb (gpointer data, gint source, PurpleInputCondition cond)
 	struct dcpp_t *dcpp = gc->proto_data;
 	char *tmp;
 	char *charset;
-	size_t lv;
+	ssize_t lv;
 	size_t lve;
 	size_t offset;
 	size_t offsetl;
@@ -580,13 +582,13 @@ dcpp_input_cb (gpointer data, gint source, PurpleInputCondition cond)
 	}
 	/* get strings */
 	lv = read (source, dcpp->inbuf, DCPP_INPUT_SZ);
-	dcpp->inbuf[lv] = '\0';
-	if (lv == 0)
+	if (lv < 1)
 	{
 		purple_connection_error_reason (gc,
 				PURPLE_CONNECTION_ERROR_NETWORK_ERROR, "Disconnected");
 		return;
 	}
+	dcpp->inbuf[lv] = '\0';
 	/* split */
 	offset = 0;
 	offsetl = 0;
@@ -683,6 +685,7 @@ dcpp_login (PurpleAccount *account)
 	PurpleConnection *gc;
 	const char *username;
 	struct dcpp_t *dcpp;
+	TODO ();
 	username = purple_account_get_username (account);
 	gc = purple_account_get_connection (account);
 	purple_connection_update_progress (gc,"Connecting", 1, 3);
@@ -709,6 +712,7 @@ static void
 dcpp_close(PurpleConnection *gc)
 {
 	struct dcpp_t *dcpp;
+	TODO ();
 	dcpp = gc->proto_data;
 	gc->proto_data = NULL;
 	if (dcpp)
@@ -914,7 +918,7 @@ dcpp_keepalive (PurpleConnection *gc)
 				"Zero hub fd");
 		return;
 	}
-	if (!write (dcpp->fd, "|", 1))
+	if (write (dcpp->fd, "|", 1) != 1)
 		purple_connection_error_reason (gc,
 				PURPLE_CONNECTION_ERROR_NETWORK_ERROR,
 				"Timeout");
