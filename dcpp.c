@@ -22,27 +22,6 @@
 	_PURPLE_VERSION_STR_ (PURPLE_MAJOR_VERSION, PURPLE_MINOR_VERSION,\
 			PURPLE_MICRO_VERSION)
 
-#if DEBUG
-# define TODO() \
-	fprintf (stderr, "%s: %s -> %s ()\n", __FILE__, __TIME__, __func__)
-# define TODO2(X, Y) \
-	fprintf (stderr, "%s: %s -> %s (" X ")\n", __FILE__, __TIME__, __func__, Y)
-
-ssize_t
-_write (int fd, char *buf, size_t len)
-{
-	ssize_t w;
-	w = write (fd, buf, len);
-	fprintf (stderr, "WRITE (%d, %p='%s', %u) -> %d\n", fd, (void*)buf, buf,
-			len, w);
-	return w;
-}
-# define write(X, Y, Z) _write (X, Y, Z)
-#else
-# define TODO()
-# define TODO2(X, Y)
-#endif
-
 #define DCPP_INPUT_SZ 1024
 #define DCPP_LINE_SZ 16384
 struct dcpp_t
@@ -75,13 +54,11 @@ dcpp_status_types (PurpleAccount *account)
 static void
 dcpp_get_info (PurpleConnection *gc, const char *who)
 {
-	TODO ();
 }
 
 static void
 dcpp_set_status (PurpleAccount *account, PurpleStatus *status)
 {
-	TODO ();
 }
 
 static void
@@ -120,7 +97,6 @@ dcpp_chat_join_info (PurpleConnection *gc)
 static GHashTable *
 dcpp_chat_info_defaults (PurpleConnection *gc, const char *chat_name)
 {
-	TODO2 ("%s", chat_name);
 	GHashTable *defaults;
 	defaults = g_hash_table_new_full(g_str_hash, g_str_equal, NULL, g_free);
 	if (chat_name != NULL)
@@ -226,9 +202,6 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 	GHashTable *htemp;
 	PurpleConversation *convy;
 	dcpp = gc->proto_data;
-	/*
-	TODO2 ("%s", input);
-	*/
 	if (!dcpp || !(dcpp->user_server))
 		return;
 	username = dcpp->user_server[0];
@@ -564,7 +537,6 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 		}
 		else
 		{
-			TODO2 ("%s", input);
 			purple_conv_chat_write (PURPLE_CONV_CHAT (convy),
 					NULL, input, PURPLE_MESSAGE_SYSTEM | PURPLE_MESSAGE_RECV,
 					time (NULL));
@@ -697,7 +669,6 @@ dcpp_login (PurpleAccount *account)
 	PurpleConnection *gc;
 	const char *username;
 	struct dcpp_t *dcpp;
-	TODO ();
 	username = purple_account_get_username (account);
 	gc = purple_account_get_connection (account);
 	purple_connection_update_progress (gc,"Connecting", 1, 3);
@@ -724,7 +695,6 @@ static void
 dcpp_close(PurpleConnection *gc)
 {
 	struct dcpp_t *dcpp;
-	TODO ();
 	dcpp = gc->proto_data;
 	gc->proto_data = NULL;
 	if (dcpp)
@@ -762,7 +732,6 @@ dcpp_close(PurpleConnection *gc)
 		purple_input_remove (gc->inpa);
 		gc->inpa = 0;
 	}
-	TODO ();
 }
 
 inline static char*
@@ -809,7 +778,6 @@ dcpp_send (PurpleConnection *gc, const char *who, const char *what)
 	char *buffer;
 	char *text;
 	char *tmp;
-	TODO ();
 	dcpp = gc->proto_data;
 	if (!dcpp || dcpp->fd == -1)
 		return 0;
@@ -899,14 +867,12 @@ dcpp_chat_join (PurpleConnection *gc, GHashTable *data)
 static char *
 dcpp_get_chat_name (GHashTable *data)
 {
-	TODO2 ("%s", (char*)g_hash_table_lookup (data, "channel"));
 	return g_strdup(g_hash_table_lookup(data, "channel"));
 }
 
 static void
 dcpp_chat_leave (PurpleConnection *gc, int id)
 {
-	TODO ();
 }
 
 static int
