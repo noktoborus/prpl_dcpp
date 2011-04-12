@@ -1,21 +1,33 @@
 # vim: ft=make ff=unix fenc=utf-8
 # file: Makefile
 CC=cc
-LIBS=$(shell pkg-config --cflags --libs purple glib-2.0)
-CFLAGS=-shared -fPIC -DPIC -Os
 ECFLAGS=-Wall -pedantic -std=c99
+CFLAGS=${ECFLAGS} -fPIC -DPIC -Os
 BIN_DCPP=${HOME}/.purple/plugins/dcpp.so
+CFLAGS_DCPP=$(shell pkg-config --cflags --libs purple glib-2.0) -shared
+BIN_DCPPD=./dcppd
+CFLAGS_DCPPD=-lev
 
-.PHONY: all clean
+BIN=
+BIN+=${BIN_DCPP}
+BIN+=${BIN_DCPPD}
 
-all: ${BIN_DCPP}
+.PHONY: build clean
+
+all:
+	make CFLAGS="${CFLAGS}" build
 
 debug:
-	make CFLAGS="${CFLAGS} -g -DDEBUG" all
+	make CFLAGS="${CFLAGS} -g -DDEBUG" build
+
+build: ${BIN}
 
 clean:
-	rm -rf ${BIN_DCPP}
+	rm -rf ${BIN}
 
 ${BIN_DCPP}: dcpp.c
-	${CC} -o $@ ${LIBS} ${CFLAGS} ${ECFLAGS} $^
+	${CC} -o $@ ${CFLAGS} ${CFLAGS_DCPP} $^
+
+${BIN_DCPPD}: dcppd.c
+	${CC} -o $@ ${CFLAGS} ${CFLAGS_DCPPD} $^
 
