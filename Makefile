@@ -3,27 +3,37 @@
 CC=cc
 ECFLAGS=-Wall -pedantic -std=c99
 CFLAGS=${ECFLAGS} -fPIC -DPIC -Os
-BIN_DCPP=${HOME}/.purple/plugins/dcpp.so
+
+BTMP=./bin/
+
+TRG_DCPP=${HOME}/.purple/plugins/dcpp.so
+BIN_DCPP=${BTMP}/dcpp.so${ENDING}
 CFLAGS_DCPP=$(shell pkg-config --cflags --libs purple glib-2.0) -shared
-BIN_DCPPD=./dcppd
+TRG_DCPPD=./dcppd
+BIN_DCPPD=${BTMP}/dcppd${ENDING}
 CFLAGS_DCPPD=-lev
 
-BIN=
+BIN=${BTMP}
 BIN+=${BIN_DCPP}
 BIN+=${BIN_DCPPD}
 
 .PHONY: build clean
 
 all:
-	make CFLAGS="${CFLAGS}" build
+	make CFLAGS="${CFLAGS}" ENDING=".release" build
 
 debug:
-	make CFLAGS="${CFLAGS} -g -DDEBUG" build
+	make CFLAGS="${CFLAGS} -g -DDEBUG" ENDING=".debug" build
 
 build: ${BIN}
+	cp -f ${BIN_DCPP} ${TRG_DCPP}
+	cp -f ${BIN_DCPPD} ${TRG_DCPPD}
 
 clean:
 	rm -rf ${BIN}
+
+${BTMP}:
+	mkdir -p $@
 
 ${BIN_DCPP}: dcpp.c
 	${CC} -o $@ ${CFLAGS} ${CFLAGS_DCPP} $^
