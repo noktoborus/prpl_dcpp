@@ -78,7 +78,8 @@ dcpp_add_buddy (PurpleConnection *gc, PurpleBuddy *buddy, PurpleGroup *group)
 static const char*
 dcpp_blist_icon (PurpleAccount *a, PurpleBuddy *b)
 {
-	return "irc";
+	/* need for icon and log's directory */
+	return "dcpp";
 }
 
 static GList *
@@ -105,11 +106,26 @@ dcpp_chat_info_defaults (PurpleConnection *gc, const char *chat_name)
 }
 
 /* DC++ key func */
-inline static int
-dcpp_key_nesc(char b)
-{
-	return (b == 0 || b == 5 || b == 124 || b == 96 || b == 126 || b == 36);
-}
+#define DCPP_KEY_NESC_IF(X) \
+	switch (X)\
+	{\
+		case 0:\
+		case 5:\
+		case 36:\
+		case 96:\
+		case 124:\
+		case 126:\
+			{
+
+#define DCPP_KEY_NESC_ELSE() \
+				break;\
+			}\
+		default:\
+			{
+
+#define DCPP_KEY_NESC_ENDIF() \
+			}\
+	};
 
 inline static char*
 dcpp_key_esc (char *key, size_t len, int cc)
@@ -117,24 +133,32 @@ dcpp_key_esc (char *key, size_t len, int cc)
 	char *line;
 	size_t c;
 	size_t offset;
-	if (cc >= 0)
+	/* test len */
+	if (cc < 0)
+	{
+		for (cc = 0, c = 0; c < len; c ++)
+		{
+			DCPP_KEY_NESC_IF (key[c]);
+				cc ++;
+			DCPP_KEY_NESC_ENDIF ();
+		}
+	}
+	/* alloc new */
+	if (cc > 0)
 		line = g_new0 (char, len + (10 * cc) + 1);
 	else
 		return NULL;
-	c = 0;
-	while (c < len)
+	/* replace */
+	for (c = 0; c < len; c ++)
 	{
-		if (dcpp_key_nesc (key[c]))
+		DCPP_KEY_NESC_IF (key[c]);
 		{
-			snprintf (&(line[offset]), 11, "/%%DCN%0*d%%/", 3, key[c]);
+			snprintf (&(line[offset]), 11, "/%%DCN%03d%%/", key[c]);
 			offset += 10;
 		}
-		else
-		{
-			line[offset] = key[c];
-			offset ++;
-		}
-		c ++;
+		DCPP_KEY_NESC_ELSE ();
+			line[offset ++] = key[c];
+		DCPP_KEY_NESC_ENDIF ();
 	}
 	return line;
 }
@@ -162,15 +186,26 @@ dcpp_extract_key (char *lock, int elen) {
         v1 = (char)(lock[i] ^ lock[i-1]);
         v1 = (char)(((v1 >> 4) | (v1 << 4)) & 0xff);
         key[i] = v1;
-        if(dcpp_key_nesc(key[i]))
+		DCPP_KEY_NESC_IF (key[i]);
+		{
             extra++;
+		}
+		DCPP_KEY_NESC_ENDIF ();
 	}
     key[0] = (char)(key[0] ^ key[len - 1]);
-    if(dcpp_key_nesc(key[0]))
-        extra++;
+	DCPP_KEY_NESC_IF (key[0]);
+	{
+		extra++;
+	}
+	DCPP_KEY_NESC_ENDIF ();
     key_o = dcpp_key_esc (key, len, extra);
-	g_free (key);
-	return key_o;
+	if (key_o)
+	{
+		g_free (key);
+		return key_o;
+	}
+	else
+		return key;
 }
 
 static gint
@@ -358,6 +393,10 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 		if (!strncmp ("$GetPass", input, 8))
 		{
 			message3 = (char*)purple_account_get_password (gc->account);
+			if (!message3 || !(*message3))
+				purple_connection_error_reason (gc,
+						PURPLE_CONNECTION_ERROR_AUTHENTICATION_FAILED,
+						"Password not set");
 			if (message3)
 			{
 				username_len = strlen (message3);
@@ -661,6 +700,9 @@ dcpp_login_cb (gpointer data, gint source, const gchar *error_message)
 				PURPLE_CONNECTION_ERROR_NETWORK_ERROR, "Can't start read");
 		return;
 	}
+
+	if (purple_account_get_bool (gc->account, "chat", FALSE))
+		serv_got_joined_chat (gc, 0, "#");
 }
 
 static void
@@ -671,7 +713,7 @@ dcpp_login (PurpleAccount *account)
 	struct dcpp_t *dcpp;
 	username = purple_account_get_username (account);
 	gc = purple_account_get_connection (account);
-	purple_connection_update_progress (gc,"Connecting", 1, 3);
+	purple_connection_update_progress (gc, "Connecting", 1, 3);
 
 	dcpp = g_new0 (struct dcpp_t, 1);
 	dcpp->user_server = g_strsplit (username, "|", 2);
@@ -1028,6 +1070,9 @@ _init_plugin (PurplePlugin *plugin)
 	prpl_info.protocol_options = g_list_append (prpl_info.protocol_options, o);
 
 	o = purple_account_option_int_new ("Port", "port", 411);
+	prpl_info.protocol_options = g_list_append (prpl_info.protocol_options, o);
+
+	o = purple_account_option_bool_new ("Open Chat at connect", "chat", FALSE);
 	prpl_info.protocol_options = g_list_append (prpl_info.protocol_options, o);
 }
 
