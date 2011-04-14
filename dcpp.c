@@ -626,6 +626,7 @@ dcpp_input_cb (gpointer data, gint source, PurpleInputCondition cond)
 				tmp = g_renew (char, dcpp->line,
 						dcpp->line_sz + DCPP_LINE_SZ + 1);
 				dcpp->line = tmp;
+				dcpp->line_sz += DCPP_LINE_SZ;
 			}
 			/* */
 			if (dcpp->offset + lve)
