@@ -28,7 +28,7 @@
 # define TODO() fprintf (stderr, "TODO: %s, %s -> %s:%u (%s)\n",\
 		__TIME__, __DATE__, __FILE__, __LINE__, __func__)
 
-ssize_t
+static inline ssize_t
 read_ (int fd, void *buf, size_t count, char const *file, int line,
 		char const *func)
 {
@@ -43,7 +43,7 @@ read_ (int fd, void *buf, size_t count, char const *file, int line,
 	return lv;
 }
 
-ssize_t
+static inline ssize_t
 write_ (int fd, void *buf, size_t count, char const* file, int line,
 		char const *func)
 {
@@ -76,16 +76,20 @@ static struct dcpp_root_t
 	{ -1, NULL }
 };
 
+struct dcpp_node_line_t
+{
+	char *line;
+	size_t of; /* offset in $line, must be < $sz,
+				  if > $sz, then skip current buffer cmd (becouse error) */
+	size_t sz;
+};
 struct dcpp_node_t
 {
 	ev_io evio;
 	int fd;
-	size_t linein_of; /* offset in $line, must be < $line_sz,
-					   if > $line_sz, then skip current buffer cmd
-					   	(becouse error) */
-	size_t linein_sz; /* size of $line */
+	struct dcpp_node_line_t in;
+	struct dcpp_node_line_t out;
 	char inbuf[INBUF_SZ_];
-	char *linein;
 	char *lnick;
 	char *rnick;
 	struct dcpp_node_t *next;
@@ -292,7 +296,7 @@ dcpp_parse_cb (struct dcpp_node_t *node)
 	int key = DCPP_KEY_NULL;
 	size_t key_of = 0;
 	/*** code */
-	fprintf (stderr, "PARSE: '%s'\n", node->linein);
+	fprintf (stderr, "PARSE: '%s'\n", node->in.line);
 	/* search key */
 	for (c = 0;; c++)
 	{
@@ -302,7 +306,7 @@ dcpp_parse_cb (struct dcpp_node_t *node)
 		if (!dcpp_keys[c].id_len)
 			dcpp_keys[c].id_len = strlen (dcpp_keys[c].id);
 		/* compare input string and key */
-		if (!strncmp (node->linein, dcpp_keys[c].id, dcpp_keys[c].id_len))
+		if (!strncmp (node->in.line, dcpp_keys[c].id, dcpp_keys[c].id_len))
 		{
 			key = dcpp_keys[c].key;
 			key_of = dcpp_keys[c].id_len;
@@ -314,12 +318,12 @@ dcpp_parse_cb (struct dcpp_node_t *node)
 	{
 		case DCPP_KEY_LOCK:
 			{
-				tmp = strstr (node->linein, " Pk=");
+				tmp = strstr (node->in.line, " Pk=");
 				if (!tmp)
 					break;
-				c = tmp - node->linein - key_of;
-				tmp = dcpp_extract_key (&node->linein[key_of],
-						tmp - node->linein - key_of);
+				c = tmp - node->in.line - key_of;
+				tmp = dcpp_extract_key (&node->in.line[key_of],
+						tmp - node->in.line - key_of);
 				/* TODO */
 				free (tmp);
 			}
@@ -327,9 +331,9 @@ dcpp_parse_cb (struct dcpp_node_t *node)
 		case DCPP_KEY_MYNICK:
 			if (!node->rnick)
 			{
-				c = node->linein_of - key_of;
+				c = node->in.of - key_of;
 				node->rnick = calloc (c + 1, sizeof (char));
-				memcpy (node->rnick, &(node->linein[key_of]), c);
+				memcpy (node->rnick, &(node->in.line[key_of]), c);
 			}
 			break;
 	};
@@ -357,36 +361,43 @@ dcpp_input_cb (struct dcpp_node_t *node, size_t len)
 			if (!lve)
 				continue;
 			/* realloc */
-			if (node->linein_of <= node->linein_sz &&
-					node->linein_sz - node->linein_of < lve)
+			if (node->in.of <= node->in.sz && node->in.sz - node->in.of < lve)
 			{
-				tmp = realloc (node->linein, node->linein_of + lve);
-				if (tmp)
+				if (node->in.of + lve <= LINE_SZ_BASE)
 				{
-					/* update len info */
-					node->linein = tmp;
-					node->linein_sz = node->linein_of + lve;
+					tmp = realloc (node->in.line, LINE_SZ_BASE);
+					if (tmp)
+						node->in.sz = LINE_SZ_BASE;
 				}
 				else
 				{
+					tmp = realloc (node->in.line, node->in.of + lve);
+					if (tmp)
+						node->in.sz = node->in.of + lve;
+				}
+				/* update ptrs */
+				if (tmp)
+					node->in.line = tmp;
+				else
+				{
 					/* set error state */
-					node->linein_of = node->linein_sz + 1;
+					node->in.of = node->in.sz + 1;
 				}
 			}
 			/* copy && execute */
-			if (node->linein_of <= node->linein_sz)
+			if (node->in.of <= node->in.sz)
 			{
-				memcpy (&(node->linein[node->linein_of]), &(node->inbuf[offl]),
+				memcpy (&(node->in.line[node->in.of]), &(node->inbuf[offl]),
 						lve);
-				node->linein_of += lve;
+				node->in.of += lve;
 				if (node->inbuf[off] == '|')
 				{
 					/* set string safe for strlen */
-					node->linein[node->linein_of - 1] = '\0';
+					node->in.line[node->in.of - 1] = '\0';
 					/* execute */
 					dcpp_parse_cb (node);
 					/* reset */
-					node->linein_of = 0;
+					node->in.of = 0;
 				}
 			}
 			/* next round */
@@ -394,19 +405,19 @@ dcpp_input_cb (struct dcpp_node_t *node, size_t len)
 		}
 	}
 	/* free garbage, if buffer not in use */
-	if (!node->linein_of && node->linein_sz > LINE_SZ_BASE)
+	if (!node->in.of && node->in.sz > LINE_SZ_BASE)
 	{
-		free (node->linein);
-		node->linein = malloc (LINE_SZ_BASE);
-		if (node->linein)
-			node->linein_sz = LINE_SZ_BASE;
+		free (node->in.line);
+		node->in.line = malloc (LINE_SZ_BASE);
+		if (node->in.line)
+			node->in.sz = LINE_SZ_BASE;
 		else
-			node->linein_sz = 0;
+			node->in.sz = 0;
 	}
 }
 
-static void
-client_cb (EV_P_ ev_io *ev, int revents)
+static inline void
+client_read_cb (EV_P_ ev_io *ev, int revents)
 {
 	/*** init */
 	ssize_t lv = 0;
@@ -429,6 +440,20 @@ client_cb (EV_P_ ev_io *ev, int revents)
 		/* remove self from loop */
 		ev_io_stop (EV_A_ ev);
 	}
+}
+
+static inline void
+client_write_cb (EV_P_ ev_io *ev, int revents)
+{
+}
+
+static void
+client_dispatch_cb (EV_P_ ev_io *ev, int revents)
+{
+	if (revents & EV_READ)
+		client_read_cb (EV_A_ ev, revents);
+	if (revents & EV_WRITE)
+		client_write_cb (EV_A_ ev, revents);
 }
 
 static void
@@ -462,15 +487,17 @@ main (int argc, char *argv[])
 		node->next = dcpp_root->node;
 		dcpp_root->node = node;
 		eve = &(node->evio);
-		ev_io_init (eve, client_cb, node->fd, EV_READ);
+		ev_io_init (eve, client_dispatch_cb, node->fd, EV_READ);
 		ev_io_start (EV_A_ eve);
 		ev_run (EV_A_ 0);
 	}
 	for (node = dcpp_root->node; node; node = node_p)
 	{
 		node_p = node->next;
-		if (node->linein)
-			free (node->linein);
+		if (node->in.line)
+			free (node->in.line);
+		if (node->out.line)
+			free (node->out.line);
 		if (node->rnick)
 			free (node->rnick);
 		free (node);
