@@ -247,8 +247,6 @@ dcpp_write (PurpleConnection *gc, char *buffer, size_t size, int need_conv)
 	else
 		charset = buffer;
 	lv = write (dcpp->fd, charset, size);
-	fprintf (stderr, "write (fd=%d, ptr=%p, size=%u) -> %d: %d '%s'\n", dcpp->fd,
-			(void*)charset, size, need_conv, lv, charset);
 	if (lv != size)
 		purple_connection_error_reason (gc,
 				PURPLE_CONNECTION_ERROR_NETWORK_ERROR,
