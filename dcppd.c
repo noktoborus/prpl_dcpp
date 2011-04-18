@@ -1,6 +1,16 @@
 /* vim: ft=c ff=unix fenc=utf-8
  * file: dcppd.c
  */
+/*
+ * TODO:
+ *	+ $Supports HubTopic
+ *	+ $Supports BotList
+ *	+ $Supports OpPlus
+ *	+ $HubTopic
+ *	+ $HubIsFull
+ *	+ $HubName
+ *
+ */
 #define _POSIX_SOURCE 1
 #define _BSD_SOURCE 1
 
@@ -11,6 +21,7 @@
 #include <string.h>
 #include <assert.h>
 #include <unistd.h>
+#include <stdarg.h>
 
 #include <ev.h>
 
@@ -27,6 +38,25 @@
 #else
 # define TODO() fprintf (stderr, "TODO: %s, %s -> %s:%u (%s)\n",\
 		__TIME__, __DATE__, __FILE__, __LINE__, __func__)
+
+#undef ev_io_set
+#define __ev_io_set(ev,fd_,events_)            do { (ev)->fd = (fd_); (ev)->events = (events_) | EV__IOFDSET; } while (0)
+#define ev_io_set(X, y, z) \
+	{\
+		fprintf (stderr, "## %s:%u.%s: ", __FILE__, __LINE__, __func__);\
+		fprintf (stderr, "io=%p, old=\"", (void*)(X));\
+		if ((X)->events & EV_READ)\
+			fprintf (stderr, "r");\
+		if ((X)->events & EV_WRITE)\
+			fprintf (stderr, "w");\
+		fprintf (stderr, "\"(%d), new=\"", (X)->events);\
+		if ((z) & EV_READ)\
+			fprintf (stderr, "r");\
+		if ((z) & EV_WRITE)\
+			fprintf (stderr, "w");\
+		fprintf (stderr, "\"(%d)\n", (z));\
+		__ev_io_set (X, y, z);\
+	}
 
 static inline ssize_t
 read_ (int fd, void *buf, size_t count, char const *file, int line,
@@ -71,6 +101,7 @@ static struct dcpp_root_t
 {
 	int fd;
 	struct dcpp_node_t *node;
+	struct ev_loop *evloop;
 } dcpp_root[] =
 {
 	{ -1, NULL }
@@ -83,10 +114,12 @@ struct dcpp_node_line_t
 				  if > $sz, then skip current buffer cmd (becouse error) */
 	size_t sz;
 };
+
 struct dcpp_node_t
 {
 	ev_io evio;
 	int fd;
+	unsigned int supports;
 	struct dcpp_node_line_t in;
 	struct dcpp_node_line_t out;
 	char inbuf[INBUF_SZ_];
@@ -95,17 +128,46 @@ struct dcpp_node_t
 	struct dcpp_node_t *next;
 };
 
+struct dcpp_supports_t
+{
+	char const *id;
+	size_t len;
+	unsigned int const key;
+};
+
+#define DCPP_SUPN_NONE		0
+#define DCPP_SUPN_ADCGET	1
+#define DCPP_SUPN_TTHL	(1 << 1)
+#define DCPP_SUPN_TTHF	(1 << 2)
+#define DCPP_SUPN_ZLIG	(1 << 3)
+
+static struct dcpp_supports_t dcpp_supports_c2c[] =\
+{
+	{ "ADCGet", 0, DCPP_SUPN_ADCGET },
+	{ "TTHL", 0, DCPP_SUPN_TTHL },
+	{ "TTHF", 0, DCPP_SUPN_TTHF },
+	{ "ZLIG", 0, DCPP_SUPN_ZLIG },
+	{ NULL, 0, DCPP_SUPN_NONE }
+};
+
+static struct dcpp_supports_t dcpp_supports_c2s[] =\
+{
+	{ NULL, 0, DCPP_SUPN_NONE }
+};
+
 #define DCPP_KEY_NULL	0
 #define DCPP_KEY_LOCK	1
-#define DCPP_KEY_MYNICK	2
+#define DCPP_KEY_KEY	2
+#define DCPP_KEY_MYNICK	3
 static struct dcpp_keys_t
 {
-	char *id;
+	char const *id;
 	size_t id_len;
-	int key;
+	int const key;
 } dcpp_keys[] =
 {
 	{ "$Lock ", 0, DCPP_KEY_LOCK },
+	{ "$Key ", 0, DCPP_KEY_KEY },
 	{ "$MyNick ", 0, DCPP_KEY_MYNICK },
 	{ NULL, 0, DCPP_KEY_NULL }
 };
@@ -216,6 +278,266 @@ dcpp_extract_key (char *lock, int elen) {
 		return key;
 }
 
+#define DCPP_FS_(X) #X
+#define DCPP_FS(X) DCPP_FS_(X)
+#define DCPP_F_END		0 /* end of args */
+#define DCPP_F_SEP		1 /* use as packet separator */
+#define DCPP_F_STR		2 /* char* */
+#define DCPP_F_DSTR		3 /* dynamic char* (free() it after copy) */
+#define DCPP_F_HUINT	4 /* host uint (size_t) */
+#define DCPP_F_BUINT	5 /* big uint (uint64_t) */
+
+#define DCPP_FF_LOCK		11 /* Fast format: $Lock */
+#define DCPP_FF_SUPS_C2C	12 /* Fast format: $Supports (to client) */
+#define DCPP_FF_SUPS_C2S	13 /* Fast format: $Supports (to server) */
+
+#define DCPP_FF_LOCK_DT "$Lock EXTENDEDPROTOCOLABCABCABCABCABCABC "\
+		"Pk=WANNA_TWO_PEACE"
+#define DCPP_FF_LOCK_SZ (sizeof (DCPP_FF_LOCK_DT) - 1)
+#define DCPP_FF_SUPS_DT "$Supports "
+#define DCPP_FF_SUPS_SZ (sizeof (DCPP_FF_SUPS_DT) - 1)
+
+/* convert string $Supports notation to host */
+static inline unsigned int
+dcpp_gen_Supports_s2i (struct dcpp_supports_t *supsi, char *input, ssize_t len)
+{
+	unsigned int r = 0;
+	size_t c;
+	size_t cc;
+	char *s;
+	if (!input)
+		return 0;
+	if (len < -1)
+		len = strlen (input);
+	if (!len)
+		return 0;
+	for (s = input, c = 0; c < len; c ++)
+	{
+		/* test for string delimeter (' ') or EOL */
+		if (c != (len - 1))
+		{
+			if (input[c] != ' ')
+				continue;
+		}
+		else
+		{
+			/* if EOL, then fix string len */
+			c ++;
+		}
+		/* find key of $Support node */
+		for (cc = 0; supsi[cc].id; cc ++)
+		{
+			if (!(supsi[cc].len))
+				supsi[cc].len = strlen (supsi[cc].id);
+			/* compare len of strings */
+			if (supsi[cc].len == input + c - s)
+			{
+				/* compare strings */
+				if (!strncmp (supsi[cc].id, s, supsi[cc].len))
+				{
+					r |= supsi[cc].key;
+					break;
+				}
+			}
+		}
+		/* for next cycle */
+		s = &(input[c + 1]);
+	}
+	return r;
+}
+
+/* convert host $Supports notation to string,
+ * if $output == NULL, return buffer size only
+ * $len == len of output
+ */
+static inline size_t
+dcpp_gen_Supports_2s (struct dcpp_supports_t *supsi, char *output, size_t len)
+{
+	size_t cc = 0;
+	size_t offset = 0;
+	size_t tmp;
+	for (; supsi[cc].id; cc ++)
+	{
+		if (!supsi[cc].len)
+			supsi[cc].len = strlen (supsi[cc].id);
+		if (output)
+		{
+			if (offset + supsi[cc].len < len)
+			{
+				memcpy (&(output[offset]), supsi[cc].id, supsi[cc].len);
+				offset += supsi[cc].len;
+				if (offset + 1 < len)
+					output[offset ++] = ' ';
+			}
+			else
+			/* if (offset <= len) */
+			{
+				/* calculate length */
+				tmp = len - offset;
+				if (tmp)
+				{
+					/* prevent 0-length string copy */
+					memcpy (&(output[offset]), supsi[cc].id, tmp);
+					offset += tmp;
+				}
+			}
+		}
+		else
+		{
+			offset += (supsi[cc].len + 1);
+		}
+	}
+	/* fix last ' ' */
+	if (offset)
+		offset --;
+	return offset;
+}
+
+static inline void
+dcpp_format_packet (struct dcpp_node_t *node, ...)
+{
+	size_t blen = 1;
+	size_t t;
+	struct dcpp_supports_t *supst = NULL;
+	char *tmp;
+	int va_f;
+	va_list va;
+	struct ev_loop *evloop = dcpp_root->evloop;
+	ev_io *eve;
+	if (!node)
+		return;
+	/* calculate buffer len */
+	va_start (va, node);
+	while ((va_f = va_arg (va, int)) != DCPP_F_END)
+	{
+		switch (va_f)
+		{
+			case DCPP_F_SEP:
+				blen ++;
+				break;
+			case DCPP_F_DSTR:
+			case DCPP_F_STR:
+				tmp = va_arg (va, char*);
+				if (tmp)
+					blen += strlen (tmp);
+				break;
+			case DCPP_F_HUINT:
+				blen += sizeof (DCPP_FS (UINTPTR_MAX)) - 1;
+				break;
+			case DCPP_F_BUINT:
+				blen += sizeof (DCPP_FS (UINT64_MAX)) - 1;
+				break;
+			case DCPP_FF_LOCK:
+				blen += DCPP_FF_LOCK_SZ;
+				break;
+			case DCPP_FF_SUPS_C2C:
+				supst = dcpp_supports_c2c;
+			case DCPP_FF_SUPS_C2S:
+				if (!supst)
+					supst = dcpp_supports_c2s;
+				t = dcpp_gen_Supports_2s (supst, NULL, 0);
+				if (t)
+					blen += DCPP_FF_SUPS_SZ + t;
+				break;
+		};
+	}
+	va_end (va);
+	/* resize buffer */
+	if (node->out.of + blen > node->out.sz)
+	{
+		/* blen + 1 for \0 in snprintf */
+		if (node->out.sz < LINE_SZ_BASE)
+		{
+			tmp = realloc (node->out.line, LINE_SZ_BASE + 1);
+			if (tmp)
+				node->out.sz = LINE_SZ_BASE + 1;
+		}
+		else
+		{
+			tmp = realloc (node->out.line, node->out.of + blen + 1);
+			if (tmp)
+				node->out.sz = node->out.of + blen + 1;
+		}
+		if (tmp)
+			node->out.line = tmp;
+		else
+		{
+			return;
+		}
+	}
+	/* reset same ptrs */
+	supst = NULL;
+	/* put data */
+	va_start (va, node);
+	while ((va_f = va_arg (va, int)) != DCPP_F_END)
+	{
+		switch (va_f)
+		{
+			case DCPP_F_SEP:
+				node->out.line[node->out.of ++] = '|';
+				break;
+			case DCPP_F_DSTR:
+			case DCPP_F_STR:
+				tmp = va_arg (va, char*);
+				if (!tmp)
+					break;
+				blen = strlen (tmp);
+				memcpy (&(node->out.line[node->out.of]), tmp, blen);
+				node->out.of += blen;
+				if (va_f == DCPP_F_DSTR)
+					free (tmp);
+				break;
+			case DCPP_F_HUINT:
+				snprintf (&(node->out.line[node->out.of]),
+						node->out.sz - node->out.of, "%u",
+						va_arg (va, size_t));
+				node->out.of += strlen (&(node->out.line[node->out.of]));
+				break;
+			case DCPP_F_BUINT:
+				snprintf (&(node->out.line[node->out.of]),
+						node->out.sz - node->out.of, "%llu",
+						va_arg (va, uint64_t));
+				node->out.of += strlen (&(node->out.line[node->out.of]));
+				break;
+			case DCPP_FF_LOCK:
+				memcpy (&(node->out.line[node->out.of]), DCPP_FF_LOCK_DT,
+						DCPP_FF_LOCK_SZ);
+				node->out.of += DCPP_FF_LOCK_SZ;
+				break;
+			case DCPP_FF_SUPS_C2C:
+				supst = dcpp_supports_c2c;
+			case DCPP_FF_SUPS_C2S:
+				if (!supst)
+					supst = dcpp_supports_c2s;
+				/* если список поддерживаемых расширений пустой, то по адресу
+				 * *(line + offset + DCPP_FF_SUPS_SZ) ничего не будет записано
+				 * иначе предполагается, что длина буфера была расчитана ранее
+				 */
+				t = dcpp_gen_Supports_2s (supst,
+						&(node->out.line[node->out.of + DCPP_FF_SUPS_SZ]),
+						node->out.sz);
+				if (t)
+				{
+					/* если был сгенерирован и скопирован список расширений,
+					 * то дописываем "заголовок" сообщения
+					 */
+					memcpy (&(node->out.line[node->out.of]), DCPP_FF_SUPS_DT,
+							DCPP_FF_SUPS_SZ);
+					/* и обновляем offset */
+					node->out.of += (DCPP_FF_SUPS_SZ + t);
+				}
+				break;
+		};
+	}
+	va_end (va);
+	node->out.line[node->out.of ++] = '|';
+	/* update event lists */
+	eve = &(node->evio);
+	ev_io_stop (evloop, eve);
+	ev_io_set (eve, node->fd, eve->events | EV_WRITE);
+	ev_io_start (evloop, eve);
+}
+
 static struct dcpp_node_t*
 gen_client_node (char *addr, int fd_or_port, const char *nick)
 {
@@ -224,7 +546,6 @@ gen_client_node (char *addr, int fd_or_port, const char *nick)
 	struct dcpp_node_t *node;
 	int lv;
 	size_t len;
-	char *buf;
 	struct sockaddr_in sin;
 	/*** init */
 	len = 0;
@@ -262,6 +583,7 @@ gen_client_node (char *addr, int fd_or_port, const char *nick)
 			else
 			{
 				/* strlen ('$MyNick |') + 1 == 10 */
+				/*
 				len += 10;
 				buf = calloc (len, sizeof (char));
 				snprintf (buf, len, "$MyNick %s|", nick);
@@ -269,6 +591,7 @@ gen_client_node (char *addr, int fd_or_port, const char *nick)
 				lv = write (node->fd, buf, len);
 				free (buf);
 				if (lv == len)
+					*/
 					return node;
 			}
 		}
@@ -287,6 +610,8 @@ gen_client_node (char *addr, int fd_or_port, const char *nick)
 	return NULL;
 }
 
+#define DCPP_EXTENDED_LOCK		"EXTENDEDPROTOCOL"
+#define DCPP_EXTENDED_LOCK_SZ	(sizeof (DCPP_EXTENDED_LOCK) - 1)
 static inline void
 dcpp_parse_cb (struct dcpp_node_t *node)
 {
@@ -322,9 +647,25 @@ dcpp_parse_cb (struct dcpp_node_t *node)
 				if (!tmp)
 					break;
 				c = tmp - node->in.line - key_of;
-				tmp = dcpp_extract_key (&node->in.line[key_of],
+				tmp = dcpp_extract_key (&(node->in.line[key_of]),
 						tmp - node->in.line - key_of);
-				/* TODO */
+				if (strncmp (&(node->in.line[key_of]), DCPP_EXTENDED_LOCK,
+								DCPP_EXTENDED_LOCK_SZ))
+				{
+					dcpp_format_packet (node,
+							DCPP_F_STR, "$Key ",
+							DCPP_F_STR, tmp,
+							DCPP_F_END);
+				}
+				else
+				{
+					dcpp_format_packet (node,
+							DCPP_F_STR, "$Key ",
+							DCPP_F_STR, tmp,
+							DCPP_F_SEP,
+							DCPP_FF_SUPS_C2C,
+							DCPP_F_END);
+				}
 				free (tmp);
 			}
 			break;
@@ -334,7 +675,10 @@ dcpp_parse_cb (struct dcpp_node_t *node)
 				c = node->in.of - key_of;
 				node->rnick = calloc (c + 1, sizeof (char));
 				memcpy (node->rnick, &(node->in.line[key_of]), c);
+				dcpp_format_packet (node, DCPP_FF_LOCK, DCPP_F_END);
 			}
+			break;
+		case DCPP_KEY_KEY:
 			break;
 	};
 }
@@ -416,19 +760,29 @@ dcpp_input_cb (struct dcpp_node_t *node, size_t len)
 	}
 }
 
+static inline struct dcpp_node_t*
+get_client_node (int fd)
+{
+	struct dcpp_node_t *node;
+	for (node = dcpp_root->node; node; node = node->next)
+		if (fd == node->fd)
+			return node;
+	return NULL;
+}
+
 static inline void
-client_read_cb (EV_P_ ev_io *ev, int revents)
+client_read_cb (struct ev_loop *evloop, ev_io *ev, int revents)
 {
 	/*** init */
 	ssize_t lv = 0;
 	struct dcpp_node_t *node;
 	/*** code */
-	for (node = dcpp_root->node; node; node = node->next)
-		if (ev->fd == node->fd)
-			break;
+	node = get_client_node (ev->fd);
+	fprintf (stderr, "!! READ ev=%p, node=%p\n", (void*)ev, (void*)node);
 	if (node)
 	{
 		lv = read (ev->fd, node->inbuf, INBUF_SZ);
+		fprintf (stderr, "RR: %d\n", lv);
 		if (lv > 0)
 			dcpp_input_cb (node, lv);
 	}
@@ -438,26 +792,64 @@ client_read_cb (EV_P_ ev_io *ev, int revents)
 		if (node)
 			node->fd = -1;
 		/* remove self from loop */
-		ev_io_stop (EV_A_ ev);
+		ev_io_stop (evloop, ev);
 	}
 }
 
 static inline void
-client_write_cb (EV_P_ ev_io *ev, int revents)
+client_write_cb (struct ev_loop *evloop, ev_io *ev, int revents)
 {
+	struct dcpp_node_t *node = get_client_node (ev->fd);
+	ssize_t lv;
+	/* try send buffer */
+	if (node && node->out.of)
+	{
+		lv = write (ev->fd, node->out.line, node->out.of);
+		if (lv > 0)
+		{
+			if (lv != node->out.of)
+			{
+				/* copy message to start of line */
+				memmove (node->out.line, &(node->out.line[lv]),
+						node->out.of -= lv);
+			}
+			else
+				node->out.of = 0;
+		}
+		else
+		{
+			/* exception */
+			/* TODO */
+			ev_io_stop (evloop, ev);
+		}
+	}
+	/* try remove buffer from event list */
+	if (!node || !node->out.of)
+	{
+		ev_io_stop (evloop, ev);
+		ev_io_set (ev, ev->fd, ev->events & ~EV_WRITE);
+		ev_io_start (evloop, ev);
+	}
 }
 
 static void
-client_dispatch_cb (EV_P_ ev_io *ev, int revents)
+client_dispatch_cb (struct ev_loop *evloop, ev_io *ev, int revents)
 {
+	fprintf (stderr, "DISP: %d, ", revents);
 	if (revents & EV_READ)
-		client_read_cb (EV_A_ ev, revents);
+		fprintf (stderr, "EV_READ ");
 	if (revents & EV_WRITE)
-		client_write_cb (EV_A_ ev, revents);
+		fprintf (stderr, "EV_WRITE ");
+	fprintf (stderr, "\n");
+
+	if (revents & EV_READ)
+		client_read_cb (evloop, ev, revents);
+	if (revents & EV_WRITE)
+		client_write_cb (evloop, ev, revents);
 }
 
 static void
-server_cb (EV_P_ ev_io *ev, int revents)
+server_cb (struct ev_loop *evloop, ev_io *ev, int revents)
 {
 	/*
 	struct dcpp_root_t *root;
@@ -470,26 +862,31 @@ main (int argc, char *argv[])
 {
 	struct dcpp_node_t *node;
 	struct dcpp_node_t *node_p;
+	char *nick = "Noktoborus";
 	ev_io *eve;
-#ifdef EV_MULTIPLICITY
-	struct ev_loop *loop = EV_DEFAULT;
-	if (!loop)
+	struct ev_loop *evloop = EV_DEFAULT;
+	if (!evloop)
 	{
 		fprintf (stderr, "can't init libev\n");
 		return 1;
 	}
-#endif
+	dcpp_root->evloop = evloop;
 	/*** main loop */
 	/* TODO */
-	node = gen_client_node ("127.0.0.1", 5690, "Noktoborus");
+	node = gen_client_node ("127.0.0.1", 5690, nick);
 	if (node)
 	{
 		node->next = dcpp_root->node;
 		dcpp_root->node = node;
 		eve = &(node->evio);
-		ev_io_init (eve, client_dispatch_cb, node->fd, EV_READ);
-		ev_io_start (EV_A_ eve);
-		ev_run (EV_A_ 0);
+		ev_io_init (eve, client_dispatch_cb, node->fd, EV_READ | EV_WRITE);
+		ev_io_start (evloop, eve);
+		dcpp_format_packet (node,
+				DCPP_F_STR, "$MyNick ",
+				DCPP_F_STR, nick,
+				DCPP_F_END);
+		fprintf (stderr, "RUN\n");
+		ev_run (evloop, 0);
 	}
 	for (node = dcpp_root->node; node; node = node_p)
 	{
