@@ -235,8 +235,9 @@ dcpp_write (PurpleConnection *gc, char *buffer, size_t size, int need_conv)
 				"UTF-8");
 		if (g_ascii_strcasecmp ("UTF-8", charset))
 		{
-			charset = g_convert_with_fallback (buffer, -1, "UTF-8",
-								charset, "?", NULL, NULL, NULL);
+			/* convert, if hubcharset != UTF-8 */
+			charset = g_convert_with_fallback (buffer, -1, charset, "UTF-8",
+								"?", NULL, NULL, NULL);
 			if (charset)
 				size = strlen (charset);
 		}
@@ -246,8 +247,8 @@ dcpp_write (PurpleConnection *gc, char *buffer, size_t size, int need_conv)
 	else
 		charset = buffer;
 	lv = write (dcpp->fd, charset, size);
-	fprintf (stderr, "write (fd=%d, ptr=%p, size=%u) -> %d '%s'\n", dcpp->fd,
-			(void*)charset, size, lv, charset);
+	fprintf (stderr, "write (fd=%d, ptr=%p, size=%u) -> %d: %d '%s'\n", dcpp->fd,
+			(void*)charset, size, need_conv, lv, charset);
 	if (lv != size)
 		purple_connection_error_reason (gc,
 				PURPLE_CONNECTION_ERROR_NETWORK_ERROR,
@@ -849,7 +850,6 @@ dcpp_send (PurpleConnection *gc, const char *who, const char *what)
 	char *username;
 	size_t username_len;
 	size_t text_len;
-	char *charset;
 	char *buffer;
 	char *text;
 	dcpp = gc->proto_data;
@@ -860,8 +860,6 @@ dcpp_send (PurpleConnection *gc, const char *who, const char *what)
 	username_len = strlen (username);
 	text = dcpp_send_escape ((char*)what);
 	text_len = strlen (text);
-	charset = (char*)purple_account_get_string (gc->account, "charset",
-			"UTF-8");
 	/* build */
 	if (!who)
 	{
