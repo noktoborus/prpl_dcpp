@@ -220,6 +220,34 @@ dcpp_list_users_free (gpointer data, gpointer user_data)
 	if (data)
 		g_free (data);
 }
+/* send data */
+inline static void
+dcpp_write (PurpleConnection *gc, char *buffer, size_t size)
+{
+	char *charset;
+	ssize_t lv;
+	struct dcpp_t *dcpp = gc->proto_data;
+	if (!dcpp || dcpp->fd == -1)
+		return;
+	charset = (char*)purple_account_get_string (gc->account, "charset",
+			"UTF-8");
+	if (g_ascii_strcasecmp ("UTF-8", charset))
+	{
+		charset = g_convert_with_fallback (buffer, -1, "UTF-8",
+							charset, "?", NULL, NULL, NULL);
+		if (charset)
+			size = strlen (charset);
+	}
+	else
+		charset = buffer;
+	lv = write (dcpp->fd, charset, size);
+	if (lv != size)
+		purple_connection_error_reason (gc,
+				PURPLE_CONNECTION_ERROR_NETWORK_ERROR,
+				"write () fail");
+	if (charset != buffer)
+		g_free (charset);
+}
 
 /* parse DC++ traffic */
 inline static void
@@ -261,10 +289,7 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 						message, username);
 				g_free (message);
 				end = strlen (buffer);
-				if (write (source, buffer, end) != end)
-					purple_connection_error_reason (gc,
-							PURPLE_CONNECTION_ERROR_NETWORK_ERROR,
-							"Error send Key");
+				dcpp_write (gc, buffer, end);
 				g_free (buffer);
 			}
 		}
@@ -292,10 +317,7 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 						"20%c$.$53687091200$|", username, message, message3,
 						1);
 				end = strlen (buffer);
-				if (write (source, buffer, end) != end)
-					purple_connection_error_reason (gc,
-							PURPLE_CONNECTION_ERROR_NETWORK_ERROR,
-							"Error send MyINFO");
+				dcpp_write (gc, buffer, end);
 				g_free (buffer);
 				purple_connection_set_state (gc, PURPLE_CONNECTED);
 				if (convy && PURPLE_CONV_CHAT (convy)->left)
@@ -406,10 +428,7 @@ dcpp_input_parse (PurpleConnection *gc, gint source, char *input)
 					buffer = g_new (char, username_len);
 					snprintf (buffer, username_len, "$MyPass %s|", message3);
 					username_len = strlen (buffer);
-					if (write (source, buffer, username_len) != username_len)
-						purple_connection_error_reason (gc,
-								PURPLE_CONNECTION_ERROR_NETWORK_ERROR,
-								"Error send password");
+					dcpp_write (gc, buffer, username_len);
 					g_free (buffer);
 				}
 			}
@@ -820,7 +839,6 @@ dcpp_send (PurpleConnection *gc, const char *who, const char *what)
 	char *charset;
 	char *buffer;
 	char *text;
-	char *tmp;
 	dcpp = gc->proto_data;
 	if (!dcpp || dcpp->fd == -1)
 		return 0;
@@ -846,26 +864,7 @@ dcpp_send (PurpleConnection *gc, const char *who, const char *what)
 				username, username, text);
 	}
 	g_free (text);
-	if (g_ascii_strcasecmp ("UTF-8", charset))
-	{
-		tmp = g_convert_with_fallback (buffer, -1, charset, "UTF-8", "?",
-				NULL, &text_len, NULL);
-	}
-	else
-		tmp = buffer;
-	/* send */
-	if (tmp)
-	{
-		if (write (dcpp->fd, tmp, text_len) != text_len)
-		{
-				purple_connection_error_reason (gc,
-						PURPLE_CONNECTION_ERROR_NETWORK_ERROR,
-						"Error send line");
-		}
-		/* free */
-		if (tmp != buffer)
-			g_free (tmp);
-	}
+	dcpp_write (gc, buffer, text_len);
 	g_free (buffer);
 	return TRUE;
 }
