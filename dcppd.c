@@ -89,16 +89,18 @@ struct dcpp_supports_t
 
 #define DCPP_SUPN_NONE		0
 #define DCPP_SUPN_ADCGET	1
-#define DCPP_SUPN_TTHL	(1 << 1)
-#define DCPP_SUPN_TTHF	(1 << 2)
-#define DCPP_SUPN_ZLIG	(1 << 3)
+#define DCPP_SUPN_TTHL		(1 << 1)
+#define DCPP_SUPN_TTHF		(1 << 2)
+#define DCPP_SUPN_ZLIG		(1 << 3)
+#define DCPP_SUPN_XMLBZLIST	(1 << 4)
 
 static struct dcpp_supports_t dcpp_supports_c2c[] =\
 {
 	{ "ADCGet", 0, DCPP_SUPN_ADCGET },
 	{ "TTHL", 0, DCPP_SUPN_TTHL },
 	{ "TTHF", 0, DCPP_SUPN_TTHF },
-	{ "ZLIG", 0, DCPP_SUPN_ZLIG },
+	/*{ "ZLIG", 0, DCPP_SUPN_ZLIG },*/
+	{ "XmlBZList", 0, DCPP_SUPN_XMLBZLIST },
 	{ NULL, 0, DCPP_SUPN_NONE }
 };
 
