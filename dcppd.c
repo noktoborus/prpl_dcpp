@@ -60,6 +60,28 @@ struct dcpp_node_c2c_t
 	unsigned short rrand;
 };
 
+#define DCPP_OUT_T_NONE	0
+#define DCPP_OUT_T_END	DCPP_OUT_T_NONE
+#define DCPP_OUT_T_STR	4
+#define DCPP_OUT_T_FILE	5
+struct dcpp_node_out_file_t
+{
+	off_t offset;
+	off_t size;
+	char fname[1];
+};
+
+struct dcpp_node_out_t
+{
+	char type;		/* for DCPP_OUT_T_* */
+	size_t size;	/* reserved bytes for this struct */
+	union
+	{
+		char *string;
+		struct dcpp_node_out_file_t *file;
+	} store;
+};
+
 struct dcpp_node_t
 {
 	ev_io evio;
@@ -74,9 +96,9 @@ struct dcpp_node_t
 	} in;
 	struct
 	{
-		char *line;
-		size_t of;
-		size_t sz;
+		struct dcpp_node_out_t *queue;
+		struct dcpp_node_out_t *qlast; /* pointer to last node */
+		size_t size; /* size of all allocated buffer */
 	} out;
 	char inbuf[INBUF_SZ_];
 	struct dcpp_node_c2c_t *c2c;
@@ -357,6 +379,7 @@ dcpp_gen_Supports_2s (struct dcpp_supports_t *supsi, char *output, size_t len)
 static inline void
 dcpp_format_packet (struct dcpp_node_t *node, ...)
 {
+#if 0
 	size_t blen = 1;
 	size_t t;
 	struct dcpp_supports_t *supst = NULL;
@@ -497,6 +520,7 @@ dcpp_format_packet (struct dcpp_node_t *node, ...)
 	ev_io_stop (evloop, eve);
 	ev_io_set (eve, node->fd, eve->events | EV_WRITE);
 	ev_io_start (evloop, eve);
+#endif
 }
 
 static struct dcpp_node_t*
@@ -783,6 +807,7 @@ client_read_cb (struct ev_loop *evloop, ev_io *ev, int revents)
 static inline void
 client_write_cb (struct ev_loop *evloop, ev_io *ev, int revents)
 {
+#if 0
 	struct dcpp_node_t *node = get_client_node (ev->fd);
 	ssize_t lv;
 	/* try send buffer */
@@ -814,6 +839,7 @@ client_write_cb (struct ev_loop *evloop, ev_io *ev, int revents)
 		ev_io_set (ev, ev->fd, ev->events & ~EV_WRITE);
 		ev_io_start (evloop, ev);
 	}
+#endif
 }
 
 static void
@@ -880,8 +906,8 @@ main (int argc, char *argv[])
 		node_p = node->next;
 		if (node->in.line)
 			free (node->in.line);
-		if (node->out.line)
-			free (node->out.line);
+		if (node->out.queue)
+			free (node->out.queue);
 		if (node->c2c->rnick)
 			free (node->c2c->rnick);
 		free (node);
