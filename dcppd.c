@@ -34,7 +34,7 @@
 #include <arpa/inet.h>
 
 #ifdef DEBUG
-# include "dcppd_debug.inc.c"
+# include "dcppd_debug.inc.h"
 #endif
 
 #define DEFAULT_NICK_(X, Y) #X "." #Y
