@@ -733,11 +733,9 @@ client_read_cb (struct ev_loop *evloop, ev_io *ev, int revents)
 	struct dcpp_node_t *node;
 	/*** code */
 	node = get_client_node (ev->fd);
-	fprintf (stderr, "!! READ ev=%p, node=%p\n", (void*)ev, (void*)node);
 	if (node)
 	{
 		lv = read (ev->fd, node->inbuf, INBUF_SZ);
-		fprintf (stderr, "RR: %d\n", lv);
 		if (lv > 0)
 			dcpp_input_cb (node, lv);
 	}
@@ -790,7 +788,7 @@ client_write_cb (struct ev_loop *evloop, ev_io *ev, int revents)
 static void
 client_dispatch_cb (struct ev_loop *evloop, ev_io *ev, int revents)
 {
-	fprintf (stderr, "DISP: %d, ", revents);
+	fprintf (stderr, "!! DISP: %d, ", revents);
 	if (revents & EV_READ)
 		fprintf (stderr, "EV_READ ");
 	if (revents & EV_WRITE)
