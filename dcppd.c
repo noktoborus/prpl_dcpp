@@ -52,14 +52,6 @@ static struct dcpp_root_t
 	{ -1, NULL }
 };
 
-struct dcpp_node_line_t
-{
-	char *line;
-	size_t of; /* offset in $line, must be < $sz,
-				  if > $sz, then skip current buffer cmd (becouse error) */
-	size_t sz;
-};
-
 struct dcpp_node_c2c_t
 {
 	char *lnick;
@@ -73,8 +65,19 @@ struct dcpp_node_t
 	ev_io evio;
 	int fd;
 	unsigned int supports;
-	struct dcpp_node_line_t in;
-	struct dcpp_node_line_t out;
+	struct
+	{
+		char *line;
+		size_t of; /* offset in $line, must be < $sz,
+						else skip current cmd (as error) */
+		size_t sz;
+	} in;
+	struct
+	{
+		char *line;
+		size_t of;
+		size_t sz;
+	} out;
 	char inbuf[INBUF_SZ_];
 	struct dcpp_node_c2c_t *c2c;
 	struct dcpp_node_t *next;
