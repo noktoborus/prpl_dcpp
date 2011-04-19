@@ -33,63 +33,8 @@
 #include <netinet/ip.h>
 #include <arpa/inet.h>
 
-#ifndef DEBUG
-# define TODO()
-#else
-# define TODO() fprintf (stderr, "TODO: %s, %s -> %s:%u (%s)\n",\
-		__TIME__, __DATE__, __FILE__, __LINE__, __func__)
-
-#undef ev_io_set
-#define __ev_io_set(ev,fd_,events_)            do { (ev)->fd = (fd_); (ev)->events = (events_) | EV__IOFDSET; } while (0)
-#define ev_io_set(X, y, z) \
-	{\
-		fprintf (stderr, "## %s:%u.%s: ", __FILE__, __LINE__, __func__);\
-		fprintf (stderr, "io=%p, old=\"", (void*)(X));\
-		if ((X)->events & EV_READ)\
-			fprintf (stderr, "r");\
-		if ((X)->events & EV_WRITE)\
-			fprintf (stderr, "w");\
-		fprintf (stderr, "\"(%d), new=\"", (X)->events);\
-		if ((z) & EV_READ)\
-			fprintf (stderr, "r");\
-		if ((z) & EV_WRITE)\
-			fprintf (stderr, "w");\
-		fprintf (stderr, "\"(%d)\n", (z));\
-		__ev_io_set (X, y, z);\
-	}
-
-static inline ssize_t
-read_ (int fd, void *buf, size_t count, char const *file, int line,
-		char const *func)
-{
-	ssize_t lv;
-	lv = read (fd, buf, count);
-	if (lv >= 0)
-		((char*)buf)[lv] = '\0';
-	else
-		((char*)buf)[0] = '\0';
-	fprintf (stderr, "%s:%d.%s () -> read (fd=%d, buf=%p, count=%u) -> "\
-			"%d '%s'\n", file, line, func, fd, buf, count, lv, (char*)buf);
-	return lv;
-}
-
-static inline ssize_t
-write_ (int fd, void *buf, size_t count, char const* file, int line,
-		char const *func)
-{
-	ssize_t lv;
-	lv = write (fd, buf, count);
-	if (lv >= 0)
-		((char*)buf)[lv] = '\0';
-	else
-		((char*)buf)[0] = '\0';
-	fprintf (stderr, "%s:%d.%s () -> write (fd=%d, buf=%p, count=%u) -> "\
-			"%d '%s'\n", file, line, func, fd, buf, count, lv, (char*)buf);
-	return lv;
-}
-
-#define read(w, x, y) read_(w, x, y, __FILE__, __LINE__, __func__)
-#define write(w, x, y) write_(w, x, y, __FILE__, __LINE__, __func__)
+#ifdef DEBUG
+# include "dcppd_debug.inc.c"
 #endif
 
 #define DEFAULT_NICK_(X, Y) #X "." #Y
@@ -115,6 +60,14 @@ struct dcpp_node_line_t
 	size_t sz;
 };
 
+struct dcpp_node_c2c_t
+{
+	char *lnick;
+	char *rnick;
+	short lrand;
+	short rrand;
+};
+
 struct dcpp_node_t
 {
 	ev_io evio;
@@ -123,8 +76,7 @@ struct dcpp_node_t
 	struct dcpp_node_line_t in;
 	struct dcpp_node_line_t out;
 	char inbuf[INBUF_SZ_];
-	char *lnick;
-	char *rnick;
+	struct dcpp_node_c2c_t *c2c;
 	struct dcpp_node_t *next;
 };
 
@@ -555,11 +507,14 @@ gen_client_node (char *addr, int fd_or_port, const char *nick)
 		nick = DEFAULT_NICK;
 	/*** alloc structs */
 	len = strlen (nick);
-	node = calloc (1, sizeof (struct dcpp_node_t) + len + 1);
+	node = calloc (1, sizeof (struct dcpp_node_t) +
+			sizeof (struct dcpp_node_c2c_t) + len + 1);
 	if (node)
 	{
-		node->lnick = (((char*)node) + sizeof (struct dcpp_node_t));
-		memcpy (node->lnick, nick, len);
+		node->c2c = (void*)(((char*)node) + sizeof (struct dcpp_node_t));
+		node->c2c->lnick = (((char*)node) + sizeof (struct dcpp_node_t) +
+				sizeof (struct dcpp_node_c2c_t));
+		memcpy (node->c2c->lnick, nick, len);
 	}
 	/*** check alloc */
 	if (!node)
@@ -599,7 +554,7 @@ gen_client_node (char *addr, int fd_or_port, const char *nick)
 	else
 	{
 		/*** accept */
-		TODO ();
+		/* TODO */
 	}
 	if (node)
 	{
@@ -670,11 +625,11 @@ dcpp_parse_cb (struct dcpp_node_t *node)
 			}
 			break;
 		case DCPP_KEY_MYNICK:
-			if (!node->rnick)
+			if (!node->c2c->rnick)
 			{
 				c = node->in.of - key_of;
-				node->rnick = calloc (c + 1, sizeof (char));
-				memcpy (node->rnick, &(node->in.line[key_of]), c);
+				node->c2c->rnick = calloc (c + 1, sizeof (char));
+				memcpy (node->c2c->rnick, &(node->in.line[key_of]), c);
 				dcpp_format_packet (node, DCPP_FF_LOCK, DCPP_F_END);
 			}
 			break;
@@ -864,6 +819,9 @@ main (int argc, char *argv[])
 	struct dcpp_node_t *node_p;
 	char *nick = "Noktoborus";
 	ev_io *eve;
+#ifdef DEBUG
+	ev_set_allocator (_ev_alloc);
+#endif
 	struct ev_loop *evloop = EV_DEFAULT;
 	if (!evloop)
 	{
@@ -895,10 +853,11 @@ main (int argc, char *argv[])
 			free (node->in.line);
 		if (node->out.line)
 			free (node->out.line);
-		if (node->rnick)
-			free (node->rnick);
+		if (node->c2c->rnick)
+			free (node->c2c->rnick);
 		free (node);
 	}
+	ev_loop_destroy (EV_DEFAULT);
 	fprintf (stderr, "END\n");
 	return 0;
 }
