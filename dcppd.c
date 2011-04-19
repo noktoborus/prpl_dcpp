@@ -64,8 +64,8 @@ struct dcpp_node_c2c_t
 {
 	char *lnick;
 	char *rnick;
-	short lrand;
-	short rrand;
+	unsigned short lrand;
+	unsigned short rrand;
 };
 
 struct dcpp_node_t
@@ -107,10 +107,12 @@ static struct dcpp_supports_t dcpp_supports_c2s[] =\
 	{ NULL, 0, DCPP_SUPN_NONE }
 };
 
-#define DCPP_KEY_NULL	0
-#define DCPP_KEY_LOCK	1
-#define DCPP_KEY_KEY	2
-#define DCPP_KEY_MYNICK	3
+#define DCPP_KEY_NULL		0
+#define DCPP_KEY_LOCK		1
+#define DCPP_KEY_KEY		2
+#define DCPP_KEY_MYNICK		3
+#define DCPP_KEY_SUPPORTS	4
+#define DCPP_KEY_DIRECTION	5
 static struct dcpp_keys_t
 {
 	char const *id;
@@ -121,6 +123,8 @@ static struct dcpp_keys_t
 	{ "$Lock ", 0, DCPP_KEY_LOCK },
 	{ "$Key ", 0, DCPP_KEY_KEY },
 	{ "$MyNick ", 0, DCPP_KEY_MYNICK },
+	{ "$Supports ", 0, DCPP_KEY_SUPPORTS },
+	{ "$Direction ", 0, DCPP_KEY_DIRECTION },
 	{ NULL, 0, DCPP_KEY_NULL }
 };
 
@@ -604,21 +608,32 @@ dcpp_parse_cb (struct dcpp_node_t *node)
 				c = tmp - node->in.line - key_of;
 				tmp = dcpp_extract_key (&(node->in.line[key_of]),
 						tmp - node->in.line - key_of);
+				/* TODO: определять направление ($Direction): Download или
+				 * Upload */
+				node->c2c->lrand = rand () % 32767;
 				if (strncmp (&(node->in.line[key_of]), DCPP_EXTENDED_LOCK,
 								DCPP_EXTENDED_LOCK_SZ))
 				{
+					/* old protocol variant */
 					dcpp_format_packet (node,
+							DCPP_F_STR, "$Direction Upload ",
+							DCPP_F_HUINT, node->c2c->lrand,
+							DCPP_F_SEP,
 							DCPP_F_STR, "$Key ",
 							DCPP_F_STR, tmp,
 							DCPP_F_END);
 				}
 				else
 				{
+					/* EXTENDEDPROTOCOL-variant */
 					dcpp_format_packet (node,
+							DCPP_FF_SUPS_C2C,
+							DCPP_F_SEP,
+							DCPP_F_STR, "$Direction Upload ",
+							DCPP_F_HUINT, node->c2c->lrand,
+							DCPP_F_SEP,
 							DCPP_F_STR, "$Key ",
 							DCPP_F_STR, tmp,
-							DCPP_F_SEP,
-							DCPP_FF_SUPS_C2C,
 							DCPP_F_END);
 				}
 				free (tmp);
@@ -634,6 +649,17 @@ dcpp_parse_cb (struct dcpp_node_t *node)
 			}
 			break;
 		case DCPP_KEY_KEY:
+			/* TODO? */
+			break;
+		case DCPP_KEY_SUPPORTS:
+			node->supports = dcpp_gen_Supports_s2i (dcpp_supports_c2c,
+					&(node->in.line[key_of]), node->in.of - key_of);
+			break;
+		case DCPP_KEY_DIRECTION:
+			tmp = strchr (&(node->in.line[key_of]), ' ');
+			if (tmp && (tmp - &(node->in.line[key_of])) == 8)
+				/* only Download-direction unpack */
+				node->c2c->rrand = (unsigned short)strtoul (tmp + 1, NULL, 10);
 			break;
 	};
 }
