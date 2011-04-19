@@ -16,7 +16,8 @@ _ev_alloc (void *ptr, long int sz)
 		{
 			cc --;
 			free (ptr);
-			fprintf (stderr, "## cb FREE: ptr=%p, cc=%d\n", ptr, cc);
+			fprintf (stderr, "## ev mem free (ptr=%p) -> count allocs=%d\n",
+					ptr, cc);
 		}
 	}
 	else
@@ -24,12 +25,14 @@ _ev_alloc (void *ptr, long int sz)
 	{
 		cc ++;
 		p = malloc (sz);
-		fprintf (stderr, "## cb ALLOC sz=%4ld, new=%p, cc=%d\n", sz, p, cc);
+		fprintf (stderr, "## ev mem alloc (sz=%ld) -> new ptr=%p, "\
+					"count allocs=%d\n", sz, p, cc);
 	}
 	else
 	{
 		p = realloc (ptr, sz);
-		fprintf (stderr, "## cb REALLOC: old=%p, new=%p, newsz=%4ld, cc=%d\n",
+		fprintf (stderr, "## ev mem realloc (old ptr=%p, sz=%ld) "\
+					"-> new ptr=%p, count allocs=%d\n",
 				ptr, p, sz, cc);
 	}
 	return p;
