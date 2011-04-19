@@ -33,7 +33,7 @@ _ev_alloc (void *ptr, long int sz)
 		p = realloc (ptr, sz);
 		fprintf (stderr, "## ev mem realloc (old ptr=%p, sz=%ld) "\
 					"-> new ptr=%p, count allocs=%d\n",
-				ptr, p, sz, cc);
+				ptr, sz, p, cc);
 	}
 	return p;
 }
