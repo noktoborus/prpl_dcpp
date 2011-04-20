@@ -581,19 +581,7 @@ gen_client_node (char *addr, int fd_or_port, const char *nick)
 			if (lv == -1)
 				perror ("connect");
 			else
-			{
-				/* strlen ('$MyNick |') + 1 == 10 */
-				/*
-				len += 10;
-				buf = calloc (len, sizeof (char));
-				snprintf (buf, len, "$MyNick %s|", nick);
-				len = strlen (buf);
-				lv = write (node->fd, buf, len);
-				free (buf);
-				if (lv == len)
-					*/
 				return node;
-			}
 		}
 	}
 	else
