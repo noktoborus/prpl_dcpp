@@ -46,7 +46,6 @@ static struct dcpp_root_t
 {
 	int fd;
 	struct dcpp_node_t *node;
-	struct ev_loop *evloop;
 } dcpp_root[] =
 {
 	{ -1, NULL }
@@ -96,9 +95,10 @@ struct dcpp_node_t
 	} in;
 	struct
 	{
-		struct dcpp_node_out_t *queue;
-		struct dcpp_node_out_t *qlast; /* pointer to last node */
-		size_t size; /* size of all allocated buffer */
+		char *queue;	/* pointer to start of buffer */
+		size_t qlast;	/* offset to last node */
+		size_t feel;	/* заполненность буфера (не должен превышать size) */
+		size_t size;	/* size of all allocated buffer */
 	} out;
 	char inbuf[INBUF_SZ_];
 	struct dcpp_node_c2c_t *c2c;
@@ -377,20 +377,23 @@ dcpp_gen_Supports_2s (struct dcpp_supports_t *supsi, char *output, size_t len)
 }
 
 static inline void
-dcpp_format_packet (struct dcpp_node_t *node, ...)
+dcpp_format_packet (EV_P_ struct dcpp_node_t *node, ...)
 {
-#if 0
-	size_t blen = 1;
-	size_t t;
-	struct dcpp_supports_t *supst = NULL;
-	char *tmp;
-	int va_f;
-	va_list va;
-	struct ev_loop *evloop = dcpp_root->evloop;
+	size_t blen	= 1;
+	size_t tlen	= 0;
+	char *ptr	= NULL;
+	int va_f	= DCPP_F_END;
 	ev_io *eve;
+	struct dcpp_node_out_t *qptr	= NULL;
+	struct dcpp_supports_t *supst	= NULL;
+	va_list va;
 	if (!node)
 		return;
-	/* calculate buffer len */
+	/* если предыдущая задача не строка, то учитываем размер заголовка */
+	qptr = (struct dcpp_node_out_t*)(node->out.queue + node->out.qlast);
+	if (!node->out.queue || qptr->type != DCPP_OUT_T_STR)
+		blen += sizeof (struct dcpp_node_out_t);
+	/* count new buffer size */
 	va_start (va, node);
 	while ((va_f = va_arg (va, int)) != DCPP_F_END)
 	{
@@ -401,9 +404,9 @@ dcpp_format_packet (struct dcpp_node_t *node, ...)
 				break;
 			case DCPP_F_DSTR:
 			case DCPP_F_STR:
-				tmp = va_arg (va, char*);
-				if (tmp)
-					blen += strlen (tmp);
+				ptr = va_arg (va, char*);
+				if (ptr)
+					blen += strlen (ptr);
 				break;
 			case DCPP_F_HUINT:
 				blen += sizeof (DCPP_FS (UINTPTR_MAX)) - 1;
@@ -419,74 +422,80 @@ dcpp_format_packet (struct dcpp_node_t *node, ...)
 			case DCPP_FF_SUPS_C2S:
 				if (!supst)
 					supst = dcpp_supports_c2s;
-				t = dcpp_gen_Supports_2s (supst, NULL, 0);
-				if (t)
-					blen += DCPP_FF_SUPS_SZ + t;
+				tlen = dcpp_gen_Supports_2s (supst, NULL, 0);
+				if (tlen)
+					blen += DCPP_FF_SUPS_SZ + tlen;
 				break;
-		};
+		}
 	}
 	va_end (va);
-	/* resize buffer */
-	if (node->out.of + blen > node->out.sz)
+	/* realloc buffer, if need */
+	tlen = node->out.feel + blen;
+	if (tlen > node->out.size)
 	{
-		/* blen + 1 for \0 in snprintf */
-		if (node->out.sz < LINE_SZ_BASE)
-		{
-			tmp = realloc (node->out.line, LINE_SZ_BASE + 1);
-			if (tmp)
-				node->out.sz = LINE_SZ_BASE + 1;
-		}
-		else
-		{
-			tmp = realloc (node->out.line, node->out.of + blen + 1);
-			if (tmp)
-				node->out.sz = node->out.of + blen + 1;
-		}
-		if (tmp)
-			node->out.line = tmp;
-		else
-		{
+		if (node->out.size < LINE_SZ_BASE && tlen < LINE_SZ_BASE)
+			tlen = LINE_SZ_BASE;
+		ptr = realloc (node->out.queue, tlen);
+		if (!ptr)
 			return;
-		}
+		node->out.queue = ptr;
+		node->out.size = tlen;
+		tlen = node->out.size - node->out.feel;
+		/* set zero, if length > 0 */
+		if (tlen)
+			memset (&(node->out.queue[node->out.feel]), 0, tlen);
 	}
-	/* reset same ptrs */
+	/* reset ptrs */
 	supst = NULL;
-	/* put data */
+	blen = 0;
+	/* prepare to put data */
+	qptr = (struct dcpp_node_out_t*)(node->out.queue + node->out.qlast);
+	if (qptr->type != DCPP_OUT_T_STR)
+	{
+		node->out.qlast = node->out.feel;
+		node->out.feel += sizeof (struct dcpp_node_out_t);
+		qptr = (void*)(node->out.queue + node->out.qlast);
+		qptr->type = DCPP_OUT_T_STR;
+	}
+	else
+		blen = qptr->size;
+	qptr->store.string = ((char*)qptr) + sizeof (struct dcpp_node_out_t);
+	/* feel buffer */
 	va_start (va, node);
 	while ((va_f = va_arg (va, int)) != DCPP_F_END)
 	{
 		switch (va_f)
 		{
 			case DCPP_F_SEP:
-				node->out.line[node->out.of ++] = '|';
+				qptr->store.string[blen ++] = '|';
 				break;
 			case DCPP_F_DSTR:
 			case DCPP_F_STR:
-				tmp = va_arg (va, char*);
-				if (!tmp)
+				ptr = va_arg (va, char*);
+				if (!ptr)
 					break;
-				blen = strlen (tmp);
-				memcpy (&(node->out.line[node->out.of]), tmp, blen);
-				node->out.of += blen;
+				tlen = strlen (ptr);
+				memcpy (&(qptr->store.string[blen]), ptr, tlen);
+				blen += tlen;
 				if (va_f == DCPP_F_DSTR)
-					free (tmp);
+					free (ptr);
 				break;
 			case DCPP_F_HUINT:
-				snprintf (&(node->out.line[node->out.of]),
-						node->out.sz - node->out.of, "%u",
-						va_arg (va, size_t));
-				node->out.of += strlen (&(node->out.line[node->out.of]));
+				tlen = node->out.size - node->out.feel - blen;
+				snprintf (&(qptr->store.string[blen]), tlen,
+						"%u", va_arg (va, size_t));
+				blen += strlen (&(qptr->store.string[blen]));
 				break;
 			case DCPP_F_BUINT:
-				snprintf (&(node->out.line[node->out.of]),
-						node->out.sz - node->out.of, "%llu",
-						va_arg (va, uint64_t));
-				node->out.of += strlen (&(node->out.line[node->out.of]));
+				tlen = node->out.size - node->out.feel - blen;
+				snprintf (&(qptr->store.string[blen]), tlen,
+						"%llu", va_arg (va, uint64_t));
+				blen += strlen (&(qptr->store.string[blen]));
 				break;
 			case DCPP_FF_LOCK:
-				memcpy (&(node->out.line[node->out.of]), DCPP_FF_LOCK_DT,
+				memcpy (&(qptr->store.string[blen]), DCPP_FF_LOCK_DT,
 						DCPP_FF_LOCK_SZ);
-				node->out.of += DCPP_FF_LOCK_SZ;
+				blen += DCPP_FF_LOCK_SZ;
 				break;
 			case DCPP_FF_SUPS_C2C:
 				supst = dcpp_supports_c2c;
@@ -497,30 +506,33 @@ dcpp_format_packet (struct dcpp_node_t *node, ...)
 				 * *(line + offset + DCPP_FF_SUPS_SZ) ничего не будет записано
 				 * иначе предполагается, что длина буфера была расчитана ранее
 				 */
-				t = dcpp_gen_Supports_2s (supst,
-						&(node->out.line[node->out.of + DCPP_FF_SUPS_SZ]),
-						node->out.sz);
-				if (t)
+				tlen = dcpp_gen_Supports_2s (supst,
+						&(qptr->store.string[blen + DCPP_FF_SUPS_SZ]),
+						qptr->size);
+				if (tlen)
 				{
 					/* если был сгенерирован и скопирован список расширений,
 					 * то дописываем "заголовок" сообщения
 					 */
-					memcpy (&(node->out.line[node->out.of]), DCPP_FF_SUPS_DT,
+					memcpy (&(qptr->store.string[blen]), DCPP_FF_SUPS_DT,
 							DCPP_FF_SUPS_SZ);
 					/* и обновляем offset */
-					node->out.of += (DCPP_FF_SUPS_SZ + t);
+					blen += (DCPP_FF_SUPS_SZ + tlen);
 				}
 				break;
 		};
 	}
 	va_end (va);
-	node->out.line[node->out.of ++] = '|';
-	/* update event lists */
+	qptr->store.string[blen ++] = '|';
+	/* finalize calculate */
+	qptr->size = blen;
+	node->out.feel = node->out.qlast + qptr->size +
+			sizeof (struct dcpp_node_out_t);
+	/* update ev */
 	eve = &(node->evio);
-	ev_io_stop (evloop, eve);
+	ev_io_stop (EV_A_ eve);
 	ev_io_set (eve, node->fd, eve->events | EV_WRITE);
-	ev_io_start (evloop, eve);
-#endif
+	ev_io_start (EV_A_ eve);
 }
 
 static struct dcpp_node_t*
@@ -580,7 +592,7 @@ gen_client_node (char *addr, int fd_or_port, const char *nick)
 				free (buf);
 				if (lv == len)
 					*/
-					return node;
+				return node;
 			}
 		}
 	}
@@ -601,7 +613,7 @@ gen_client_node (char *addr, int fd_or_port, const char *nick)
 #define DCPP_EXTENDED_LOCK		"EXTENDEDPROTOCOL"
 #define DCPP_EXTENDED_LOCK_SZ	(sizeof (DCPP_EXTENDED_LOCK) - 1)
 static inline void
-dcpp_parse_cb (struct dcpp_node_t *node)
+dcpp_parse_cb (EV_P_ struct dcpp_node_t *node)
 {
 	/*** init */
 	char *tmp;
@@ -644,7 +656,7 @@ dcpp_parse_cb (struct dcpp_node_t *node)
 								DCPP_EXTENDED_LOCK_SZ))
 				{
 					/* old protocol variant */
-					dcpp_format_packet (node,
+					dcpp_format_packet (EV_A_ node,
 							DCPP_F_STR, "$Direction Upload ",
 							DCPP_F_HUINT, node->c2c->lrand,
 							DCPP_F_SEP,
@@ -655,7 +667,7 @@ dcpp_parse_cb (struct dcpp_node_t *node)
 				else
 				{
 					/* EXTENDEDPROTOCOL-variant */
-					dcpp_format_packet (node,
+					dcpp_format_packet (EV_A_ node,
 							DCPP_FF_SUPS_C2C,
 							DCPP_F_SEP,
 							DCPP_F_STR, "$Direction Upload ",
@@ -674,7 +686,7 @@ dcpp_parse_cb (struct dcpp_node_t *node)
 				c = node->in.of - key_of;
 				node->c2c->rnick = calloc (c + 1, sizeof (char));
 				memcpy (node->c2c->rnick, &(node->in.line[key_of]), c);
-				dcpp_format_packet (node, DCPP_FF_LOCK, DCPP_F_END);
+				dcpp_format_packet (EV_A_ node, DCPP_FF_LOCK, DCPP_F_END);
 			}
 			break;
 		case DCPP_KEY_KEY:
@@ -698,7 +710,7 @@ dcpp_parse_cb (struct dcpp_node_t *node)
  * set node->inbuf feel in $len
  */
 static inline void
-dcpp_input_cb (struct dcpp_node_t *node, size_t len)
+dcpp_input_cb (EV_P_ struct dcpp_node_t *node, size_t len)
 {
 	/*** init */
 	size_t off = 0;
@@ -749,7 +761,7 @@ dcpp_input_cb (struct dcpp_node_t *node, size_t len)
 					/* set string safe for strlen */
 					node->in.line[node->in.of - 1] = '\0';
 					/* execute */
-					dcpp_parse_cb (node);
+					dcpp_parse_cb (EV_A_ node);
 					/* reset */
 					node->in.of = 0;
 				}
@@ -781,7 +793,7 @@ get_client_node (int fd)
 }
 
 static inline void
-client_read_cb (struct ev_loop *evloop, ev_io *ev, int revents)
+client_read_cb (EV_P_ ev_io *ev, int revents)
 {
 	/*** init */
 	ssize_t lv = 0;
@@ -792,7 +804,7 @@ client_read_cb (struct ev_loop *evloop, ev_io *ev, int revents)
 	{
 		lv = read (ev->fd, node->inbuf, INBUF_SZ);
 		if (lv > 0)
-			dcpp_input_cb (node, lv);
+			dcpp_input_cb (EV_A_ node, lv);
 	}
 	if (lv < 1)
 	{
@@ -800,12 +812,12 @@ client_read_cb (struct ev_loop *evloop, ev_io *ev, int revents)
 		if (node)
 			node->fd = -1;
 		/* remove self from loop */
-		ev_io_stop (evloop, ev);
+		ev_io_stop (EV_A_ ev);
 	}
 }
 
 static inline void
-client_write_cb (struct ev_loop *evloop, ev_io *ev, int revents)
+client_write_cb (EV_P_ ev_io *ev, int revents)
 {
 #if 0
 	struct dcpp_node_t *node = get_client_node (ev->fd);
@@ -834,16 +846,16 @@ client_write_cb (struct ev_loop *evloop, ev_io *ev, int revents)
 	}
 	/* try remove buffer from event list */
 	if (!node || !node->out.of)
-	{
-		ev_io_stop (evloop, ev);
-		ev_io_set (ev, ev->fd, ev->events & ~EV_WRITE);
-		ev_io_start (evloop, ev);
-	}
 #endif
+	{
+		ev_io_stop (EV_A_ ev);
+		ev_io_set (ev, ev->fd, ev->events & ~EV_WRITE);
+		ev_io_start (EV_A_ ev);
+	}
 }
 
 static void
-client_dispatch_cb (struct ev_loop *evloop, ev_io *ev, int revents)
+client_dispatch_cb (EV_P_ ev_io *ev, int revents)
 {
 	fprintf (stderr, "!! DISP: %d, ", revents);
 	if (revents & EV_READ)
@@ -853,13 +865,13 @@ client_dispatch_cb (struct ev_loop *evloop, ev_io *ev, int revents)
 	fprintf (stderr, "\n");
 
 	if (revents & EV_READ)
-		client_read_cb (evloop, ev, revents);
+		client_read_cb (EV_A_ ev, revents);
 	if (revents & EV_WRITE)
-		client_write_cb (evloop, ev, revents);
+		client_write_cb (EV_A_ ev, revents);
 }
 
 static void
-server_cb (struct ev_loop *evloop, ev_io *ev, int revents)
+server_cb (EV_P_ ev_io *ev, int revents)
 {
 	/*
 	struct dcpp_root_t *root;
@@ -874,16 +886,17 @@ main (int argc, char *argv[])
 	struct dcpp_node_t *node_p;
 	char *nick = "Noktoborus";
 	ev_io *eve;
-#ifdef DEBUG
-	ev_set_allocator (_ev_alloc);
-#endif
-	struct ev_loop *evloop = EV_DEFAULT;
-	if (!evloop)
+#ifdef EV_MULTIPLICITY
+	struct ev_loop *loop = EV_DEFAULT;
+	if (!loop)
 	{
 		fprintf (stderr, "can't init libev\n");
 		return 1;
 	}
-	dcpp_root->evloop = evloop;
+#endif
+#ifdef DEBUG
+	ev_set_allocator (_ev_alloc);
+#endif
 	/*** main loop */
 	/* TODO */
 	node = gen_client_node ("127.0.0.1", 5690, nick);
@@ -893,13 +906,13 @@ main (int argc, char *argv[])
 		dcpp_root->node = node;
 		eve = &(node->evio);
 		ev_io_init (eve, client_dispatch_cb, node->fd, EV_READ | EV_WRITE);
-		ev_io_start (evloop, eve);
-		dcpp_format_packet (node,
+		ev_io_start (EV_A_ eve);
+		dcpp_format_packet (EV_A_ node,
 				DCPP_F_STR, "$MyNick ",
 				DCPP_F_STR, nick,
 				DCPP_F_END);
 		fprintf (stderr, "RUN\n");
-		ev_run (evloop, 0);
+		ev_run (EV_A_ 0);
 	}
 	for (node = dcpp_root->node; node; node = node_p)
 	{
@@ -912,7 +925,7 @@ main (int argc, char *argv[])
 			free (node->c2c->rnick);
 		free (node);
 	}
-	ev_loop_destroy (EV_DEFAULT);
+	ev_loop_destroy (EV_A);
 	fprintf (stderr, "END\n");
 	return 0;
 }
