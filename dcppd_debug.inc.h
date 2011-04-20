@@ -93,9 +93,10 @@ static void*
 realloc_ (void *ptr, size_t size, char const *file, int line, char const *func)
 {
 	void *r;
+	fprintf (stderr, "%s:%d.%s () -> realloc (ptr=%p, size=%u) -> ",
+			file, line, func, ptr, size);
 	r = realloc (ptr, size);
-	fprintf (stderr, "%s:%d.%s () -> realloc (ptr=%p, size=%u) -> %p\n",
-			file, line, func, ptr, size, r);
+	fprintf (stderr, "%p\n", r);
 	return r;
 }
 
