@@ -68,7 +68,50 @@ write_ (int fd, void *buf, size_t count, char const* file, int line,
 	return lv;
 }
 
-#define read(w, x, y) read_(w, x, y, __FILE__, __LINE__, __func__)
-#define write(w, x, y) write_(w, x, y, __FILE__, __LINE__, __func__)
+static void*
+malloc_ (size_t size, char const *file, int line, char const *func)
+{
+	void *r;
+	r = malloc (size);
+	fprintf (stderr, "%s:%d.%s () -> malloc (size=%u) -> %p\n",
+			file, line, func, size, r);
+	return r;
+}
+
+static void*
+calloc_ (size_t nmemb, size_t size,
+		char const *file, int line, char const *func)
+{
+	void *r;
+	r = calloc (nmemb, size);
+	fprintf (stderr, "%s:%d.%s () -> calloc (nmemb=%u, size=%u) -> %p\n",
+			file, line, func, nmemb, size, r);
+	return r;
+}
+
+static void*
+realloc_ (void *ptr, size_t size, char const *file, int line, char const *func)
+{
+	void *r;
+	r = realloc (ptr, size);
+	fprintf (stderr, "%s:%d.%s () -> realloc (ptr=%p, size=%u) -> %p\n",
+			file, line, func, ptr, size, r);
+	return r;
+}
+
+static void
+free_ (void *ptr, char const *file, int line, char const *func)
+{
+	fprintf (stderr, "%s:%d.%s () -> free (ptr=%p)\n", file, line, func, ptr);
+	free (ptr);
+}
+
+#define read(w, x, y) read_ (w, x, y, __FILE__, __LINE__, __func__)
+#define write(w, x, y) write_ (w, x, y, __FILE__, __LINE__, __func__)
+
+#define malloc(x)		malloc_ (x, __FILE__, __LINE__, __func__)
+#define calloc(x, y)	calloc_ (x, y, __FILE__, __LINE__, __func__)
+#define realloc(x, y)	realloc_ (x, y, __FILE__, __LINE__, __func__)
+#define free(x)			free_ (x, __FILE__, __LINE__, __func__)
 #endif
 
