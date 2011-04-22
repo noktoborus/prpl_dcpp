@@ -68,18 +68,12 @@ struct dcpp_node_out_file_t
 {
 	off_t offset;
 	off_t size;
-	char fname[1];
 };
 
 struct dcpp_node_out_t
 {
 	char type;		/* for DCPP_OUT_T_* */
 	size_t size;	/* reserved bytes for this struct */
-	union
-	{
-		char *string;
-		struct dcpp_node_out_file_t *file;
-	} store;
 };
 
 struct dcpp_node_t
@@ -380,12 +374,49 @@ dcpp_gen_Supports_2s (struct dcpp_supports_t *supsi, char *output, size_t len)
 }
 
 static inline void
+dcpp_format_file (EV_P_ struct dcpp_node_t *node, off_t offset, off_t len,
+		char const *path)
+{
+	struct dcpp_node_out_t *qptr = NULL;
+	struct dcpp_node_out_file_t *qfile = NULL;
+	size_t blen;
+	size_t tlen;
+	char *ptr;
+	if (!node || !path)
+		return;
+	blen = strlen (path);
+	tlen = blen + node->out.feel + sizeof (struct dcpp_node_out_file_t) +
+			sizeof (struct dcpp_node_out_t);
+	/* realloc, if needed */
+	if (tlen > node->out.size)
+	{
+		if (node->out.size < LINE_SZ_BASE && tlen < LINE_SZ_BASE)
+			tlen = LINE_SZ_BASE;
+		ptr = realloc (node->out.queue, tlen);
+		if (!ptr)
+			return;
+		node->out.queue = ptr;
+	}
+	qptr = (struct dcpp_node_out_t*)(node->out.queue + node->out.qlast);
+	/* udpate info */
+	qptr->type = DCPP_OUT_T_FILE;
+	qfile = (struct dcpp_node_out_file_t*)
+		((char*)qptr) + sizeof (struct dcpp_node_out_t);
+	ptr = ((char*)qfile) + sizeof (struct dcpp_node_out_file_t);
+	qfile->offset = offset;
+	qfile->size = len;
+	/* copy path to file */
+	memcpy (ptr, path, blen);
+}
+
+static inline void
 dcpp_format_packet (EV_P_ struct dcpp_node_t *node, ...)
 {
+	int va_f	= DCPP_F_END;
 	size_t blen	= 1;
 	size_t tlen	= 0;
-	char *ptr	= NULL;
-	int va_f	= DCPP_F_END;
+	char *string	= NULL;
+	char *val		= NULL;
 	ev_io *eve;
 	struct dcpp_node_out_t *qptr	= NULL;
 	struct dcpp_supports_t *supst	= NULL;
@@ -407,9 +438,9 @@ dcpp_format_packet (EV_P_ struct dcpp_node_t *node, ...)
 				break;
 			case DCPP_F_DSTR:
 			case DCPP_F_STR:
-				ptr = va_arg (va, char*);
-				if (ptr)
-					blen += strlen (ptr);
+				val = va_arg (va, char*);
+				if (val)
+					blen += strlen (val);
 				break;
 			case DCPP_F_HUINT:
 				blen += sizeof (DCPP_FS (UINTPTR_MAX)) - 1;
@@ -438,10 +469,10 @@ dcpp_format_packet (EV_P_ struct dcpp_node_t *node, ...)
 	{
 		if (node->out.size < LINE_SZ_BASE && tlen < LINE_SZ_BASE)
 			tlen = LINE_SZ_BASE;
-		ptr = realloc (node->out.queue, tlen);
-		if (!ptr)
+		val = realloc (node->out.queue, tlen);
+		if (!val)
 			return;
-		node->out.queue = ptr;
+		node->out.queue = val;
 		node->out.size = tlen;
 		tlen = node->out.size - node->out.feel;
 		/* set zero, if length > 0 */
@@ -463,7 +494,7 @@ dcpp_format_packet (EV_P_ struct dcpp_node_t *node, ...)
 	else
 		/* set offset in string */
 		blen = qptr->size;
-	qptr->store.string = ((char*)qptr) + sizeof (struct dcpp_node_out_t);
+	string = ((char*)qptr) + sizeof (struct dcpp_node_out_t);
 	/* feel buffer */
 	va_start (va, node);
 	while ((va_f = va_arg (va, int)) != DCPP_F_END)
@@ -471,33 +502,33 @@ dcpp_format_packet (EV_P_ struct dcpp_node_t *node, ...)
 		switch (va_f)
 		{
 			case DCPP_F_SEP:
-				qptr->store.string[blen ++] = '|';
+				string[blen ++] = '|';
 				break;
 			case DCPP_F_DSTR:
 			case DCPP_F_STR:
-				ptr = va_arg (va, char*);
-				if (!ptr)
+				val = va_arg (va, char*);
+				if (!val)
 					break;
-				tlen = strlen (ptr);
-				memcpy (&(qptr->store.string[blen]), ptr, tlen);
+				tlen = strlen (val);
+				memcpy (&(string[blen]), val, tlen);
 				blen += tlen;
 				if (va_f == DCPP_F_DSTR)
-					free (ptr);
+					free (val);
 				break;
 			case DCPP_F_HUINT:
 				tlen = node->out.size - node->out.feel - blen;
-				snprintf (&(qptr->store.string[blen]), tlen,
+				snprintf (&(string[blen]), tlen,
 						"%u", va_arg (va, size_t));
-				blen += strlen (&(qptr->store.string[blen]));
+				blen += strlen (&(string[blen]));
 				break;
 			case DCPP_F_BUINT:
 				tlen = node->out.size - node->out.feel - blen;
-				snprintf (&(qptr->store.string[blen]), tlen,
+				snprintf (&(string[blen]), tlen,
 						"%llu", va_arg (va, uint64_t));
-				blen += strlen (&(qptr->store.string[blen]));
+				blen += strlen (&(string[blen]));
 				break;
 			case DCPP_FF_LOCK:
-				memcpy (&(qptr->store.string[blen]), DCPP_FF_LOCK_DT,
+				memcpy (&(string[blen]), DCPP_FF_LOCK_DT,
 						DCPP_FF_LOCK_SZ);
 				blen += DCPP_FF_LOCK_SZ;
 				break;
@@ -511,7 +542,7 @@ dcpp_format_packet (EV_P_ struct dcpp_node_t *node, ...)
 				 * иначе предполагается, что длина буфера была расчитана ранее
 				 */
 				tlen = dcpp_gen_Supports_2s (supst,
-						&(qptr->store.string[blen + DCPP_FF_SUPS_SZ]),
+						&(string[blen + DCPP_FF_SUPS_SZ]),
 						node->out.size - node->out.qlast - DCPP_FF_SUPS_SZ -
 							blen - sizeof (struct dcpp_node_out_t));
 				if (tlen)
@@ -519,7 +550,7 @@ dcpp_format_packet (EV_P_ struct dcpp_node_t *node, ...)
 					/* если был сгенерирован и скопирован список расширений,
 					 * то дописываем "заголовок" сообщения
 					 */
-					memcpy (&(qptr->store.string[blen]), DCPP_FF_SUPS_DT,
+					memcpy (&(string[blen]), DCPP_FF_SUPS_DT,
 							DCPP_FF_SUPS_SZ);
 					/* и обновляем offset */
 					blen += (DCPP_FF_SUPS_SZ + tlen);
@@ -528,7 +559,7 @@ dcpp_format_packet (EV_P_ struct dcpp_node_t *node, ...)
 		};
 	}
 	va_end (va);
-	qptr->store.string[blen ++] = '|';
+	string[blen ++] = '|';
 	/* finalize calculate */
 	qptr->size = blen;
 	node->out.feel = node->out.qlast + qptr->size +
@@ -816,6 +847,7 @@ dcpp_output_cb (EV_P_ struct dcpp_node_t *node)
 	size_t len	= 0u;
 	size_t tlen	= 0u;
 	struct dcpp_node_out_t *qptr;
+	char *string	= NULL;
 	/* prevent exceptions */
 	if (!node)
 		return 0u;
@@ -826,10 +858,11 @@ dcpp_output_cb (EV_P_ struct dcpp_node_t *node)
 		switch (qptr->type)
 		{
 			case DCPP_OUT_T_STR:
+				string = ((char*)qptr) + sizeof (struct dcpp_node_out_t);
 				if (qptr->size <= DCPP_BUF_SZ)
 				{
 					/* copy string to outbuf */
-					memcpy (node->out.buf, qptr->store.string, qptr->size);
+					memcpy (node->out.buf, string, qptr->size);
 					len = qptr->size;
 					/* remove node from queue */
 					tlen = node->out.feel -
@@ -852,13 +885,12 @@ dcpp_output_cb (EV_P_ struct dcpp_node_t *node)
 				}
 				else
 				{
-					memcpy (node->out.buf, qptr->store.string, DCPP_BUF_SZ);
+					memcpy (node->out.buf, string, DCPP_BUF_SZ);
 					len = DCPP_BUF_SZ;
 					/* move data */
 					tlen = node->out.feel - DCPP_BUF_SZ -
 						sizeof (struct dcpp_node_out_t);
-					memmove (qptr->store.string,
-							&(qptr->store.string[DCPP_BUF_SZ]), tlen);
+					memmove (string, &(string[DCPP_BUF_SZ]), tlen);
 					node->out.feel -= DCPP_BUF_SZ;
 					qptr->size -= DCPP_BUF_SZ;
 				}
