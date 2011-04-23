@@ -144,11 +144,17 @@ struct dcpp_supports_t
 
 static struct dcpp_supports_t dcpp_supports_c2c[] =\
 {
+	/* $ADCGET, $ADCSND supports */
 	{ "ADCGet", 0, DCPP_SUPN_ADCGET },
-	{ "TTHL", 0, DCPP_SUPN_TTHL },
+	/* TODO: $ADCGET tthl TTH/... support */
+	/*{ "TTHL", 0, DCPP_SUPN_TTHL },*/
+	/* $ADCGET file TTH/... support */
 	{ "TTHF", 0, DCPP_SUPN_TTHF },
+	/* TODO?: zlib-compress support in ADCGet */
 	/* { "ZLIG", 0, DCPP_SUPN_ZLIG },*/
+	/* compressed files.xml (.bz2) */
 	{ "XmlBZList", 0, DCPP_SUPN_XMLBZLIST },
+	/* END OF LIST */
 	{ NULL, 0, DCPP_SUPN_NONE }
 };
 
