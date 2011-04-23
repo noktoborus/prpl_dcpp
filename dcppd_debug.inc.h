@@ -107,6 +107,16 @@ free_ (void *ptr, char const *file, int line, char const *func)
 	free (ptr);
 }
 
+static void*
+memmove_ (void *dest, const void *src, size_t n, char const *file, int line,
+		char const *func)
+{
+	fprintf (stderr, "%s:%d.%s () -> memmove (dest=%p, src=%p, n=%u)\n",
+			file, line, func, (void*)dest, (void*)src, n);
+	return memmove (dest, src, n);
+}
+
+
 #define read(w, x, y) read_ (w, x, y, __FILE__, __LINE__, __func__)
 #define write(w, x, y) write_ (w, x, y, __FILE__, __LINE__, __func__)
 
@@ -114,5 +124,7 @@ free_ (void *ptr, char const *file, int line, char const *func)
 #define calloc(x, y)	calloc_ (x, y, __FILE__, __LINE__, __func__)
 #define realloc(x, y)	realloc_ (x, y, __FILE__, __LINE__, __func__)
 #define free(x)			free_ (x, __FILE__, __LINE__, __func__)
+
+#define memmove(x, y, z) memmove_ (x, y, z, __FILE__, __LINE__, __func__)
 #endif
 
