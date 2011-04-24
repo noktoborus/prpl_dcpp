@@ -48,8 +48,13 @@ read_ (int fd, void *buf, size_t count, char const *file, int line,
 		((char*)buf)[lv] = '\0';
 	else
 		((char*)buf)[0] = '\0';
+#if 0
 	fprintf (stderr, "%s:%d.%s () -> read (fd=%d, buf=%p, count=%u) -> "\
 			"%d '%s'\n", file, line, func, fd, buf, count, lv, (char*)buf);
+#else
+	fprintf (stderr, "%s:%d.%s () -> read (fd=%d, buf=%p, count=%u) -> %d\n",
+			file, line, func, fd, buf, count, lv);
+#endif
 	return lv;
 }
 
@@ -63,8 +68,13 @@ write_ (int fd, void *buf, size_t count, char const* file, int line,
 		((char*)buf)[lv] = '\0';
 	else
 		((char*)buf)[0] = '\0';
+#if 0
 	fprintf (stderr, "%s:%d.%s () -> write (fd=%d, buf=%p, count=%u) -> "\
 			"%d '%s'\n", file, line, func, fd, buf, count, lv, (char*)buf);
+#else
+	fprintf (stderr, "%s:%d.%s () -> write (fd=%d, buf=%p, count=%u) -> %d\n",
+			file, line, func, fd, buf, count, lv);
+#endif
 	return lv;
 }
 
