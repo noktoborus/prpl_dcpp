@@ -141,6 +141,7 @@ struct dcpp_supports_t
 #define DCPP_SUPN_TTHF		(1 << 2)
 #define DCPP_SUPN_ZLIG		(1 << 3)
 #define DCPP_SUPN_XMLBZLIST	(1 << 4)
+#define DCPP_SUPN_DCPROXY	(1 << 5)
 
 static struct dcpp_supports_t dcpp_supports_c2c[] =\
 {
@@ -1067,7 +1068,6 @@ dcpp_output_cb (EV_P_ struct dcpp_node_t *node)
 		}
 	}
 	return len;
-	/* TODO */
 }
 
 static inline void
