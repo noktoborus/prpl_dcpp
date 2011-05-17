@@ -527,6 +527,25 @@ clipair_DC_rd_cb (EV_P_ ev_io *ev, struct S5tun_t *self)
 {
 	/* get s2c-traffic from server */
 	/* capture messages $ConnectToMe, $SR, $Search, $RevConnectToMe  */
+	ssize_t lv;
+	lv = read (self->_s[1].fd, self->_s[0].in.buf, LINE_SZ);
+	if (lv < 1)
+	{
+		self->_s[0].in.inbuf = 0u;
+		self->_s[0].in.buf[0] = '\0';
+	}
+	else
+	{
+		self->_s[0].in.inbuf = (size_t)lv;
+		self->_s[0].in.buf[lv] = '\0';
+		/* TODO: ... */
+#if 1
+		msg_format_raw (&(self->_s[0]), self->_s[0].in.inbuf,
+				self->_s[0].in.buf);
+		msg_commit (EV_A_ &(self->_s[0]));
+#endif
+	}
+	/* TODO: use self->errcc */
 }
 
 /* connections */
@@ -841,11 +860,12 @@ static inline void
 clipair_S5_rd_cb (EV_P_ ev_io *ev, struct S5tun_t *self)
 {
 	ssize_t lv;
-	size_t off;
+	size_t off = 0u;
 	lv = read (self->_s[0].fd, self->_s[0].in.buf, LINE_SZ);
 	if (lv < 1)
 	{
 		/* TODO: set off state for current struct and close all connections */
+		self->errcc ++;
 		self->_s[0].in.inbuf = 0u;
 		self->_s[0].in.buf[0] = '\0';
 	}
@@ -853,22 +873,22 @@ clipair_S5_rd_cb (EV_P_ ev_io *ev, struct S5tun_t *self)
 	{
 		self->_s[0].in.inbuf = (size_t)lv;
 		self->_s[0].in.buf[lv] = '\0';
-	}
-	off = 0;
-	while (off != self->_s[0].in.inbuf && self->errcc < ERRCC_MAX
-			&& self->state != STATE_END)
-	{
-		/* parse input */
-		if (self->state < STATE_DC)
+		off = 0;
+		while (off != self->_s[0].in.inbuf && self->errcc < ERRCC_MAX
+				&& self->state != STATE_END)
 		{
-			/* STATE_S5 */
-			off = S5_input_cb (EV_A_ ev, self, &(self->_s[0].in.buf[off]),
-					self->_s[0].in.inbuf - off);
-		}
-		else
-		{
-			/* STATE_DC */
-			/* TODO */
+			/* parse input */
+			if (self->state < STATE_DC)
+			{
+				/* STATE_S5 */
+				off = S5_input_cb (EV_A_ ev, self, &(self->_s[0].in.buf[off]),
+						self->_s[0].in.inbuf - off);
+			}
+			else
+			{
+				/* STATE_DC */
+				/* TODO */
+			}
 		}
 	}
 	if (self->errcc >= ERRCC_MAX)
@@ -878,6 +898,7 @@ clipair_S5_rd_cb (EV_P_ ev_io *ev, struct S5tun_t *self)
 		/* */
 		/* TODO: drop struct */
 	}
+	/* TODO: progress STATE_END */
 	/* rewrite messages with keys: $MyINFO */
 }
 
