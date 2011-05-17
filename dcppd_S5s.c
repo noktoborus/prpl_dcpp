@@ -402,125 +402,6 @@ msg_commit (EV_P_ struct _s_cony_t *cony)
 	}
 }
 
-static inline void
-clipair_DC_rd_cb (EV_P_ ev_io *ev, struct S5tun_t *self)
-{
-	/* get s2c-traffic from server */
-	/* capture messages $ConnectToMe, $SR, $Search, $RevConnectToMe  */
-}
-
-/* connections */
-static int
-_S5_connect_DC_v4 (struct sockaddr *sa, size_t sasz)
-{
-	int sock;
-	sock = socket (PF_INET, SOCK_STREAM, 0);
-	if (sock != -1)
-	{
-		if (connect (sock, sa, sasz) == -1)
-		{
-			close (sock);
-			sock = -1;
-		}
-	}
-	return sock;
-}
-
-static int
-_S5_connect_DC_v6 (struct sockaddr *sa, size_t sasz)
-{
-	int sock;
-	sock = socket (PF_INET6, SOCK_STREAM, 0);
-	if (sock != -1)
-	{
-		if (connect (sock, sa, sasz) == -1)
-		{
-			close (sock);
-			sock = -1;
-		}
-	}
-	return -1;
-}
-
-static inline int
-S5_connect_DC (EV_P_ ev_io *ev, struct S5tun_t *self)
-{
-	ev_io *eve;
-	struct addrinfo hint; /* for matching */
-	struct addrinfo *air; /* root address info (for freeaddrinfo ()) */
-	struct addrinfo *aic; /* current address info */
-	char port[6];
-	int sock;
-	union
-	{
-		struct sockaddr *_;
-		struct sockaddr_in *in;
-		struct sockaddr_in6 *in6;
-	} _s;
-	if (self->state < STATE_DC)
-		return -1;
-	if (self->u.sto->atype == S5_AT_DN)
-	{
-		memset (&hint, 0, sizeof (struct addrinfo));
-		hint.ai_socktype = SOCK_STREAM;
-		snprintf (port, 6, "%u", self->u.sto->port.p16);
-		sock = -1;
-		if (!getaddrinfo (self->u.sto->addr.dn, port, &hint, &air))
-		{
-			for (aic = air; aic; aic = aic->ai_next)
-			{
-				if (aic->ai_family == AF_INET)
-					sock = _S5_connect_DC_v4 (aic->ai_addr,
-							sizeof (struct sockaddr_in));
-				else
-				if (aic->ai_family == AF_INET6)
-					sock = _S5_connect_DC_v6 (aic->ai_addr,
-							sizeof (struct sockaddr_in6));
-				if (sock != -1)
-					break;
-			}
-			freeaddrinfo (air);
-			return sock;
-		}
-	}
-	else
-	if (self->u.sto->atype == S5_AT_IP)
-	{
-		_s._ = NULL;
-		if (self->u.sto->addr_len == 4)
-		{
-			/* IPv4 */
-			_s._ = calloc (1, sizeof (struct sockaddr_in));
-			if (!_s._)
-			return -1;
-		_s.in->sin_family = PF_INET;
-		_s.in->sin_addr.s_addr = self->u.sto->addr.ipv4;
-		_s.in->sin_port = self->u.sto->port.p16;
-		sock = _S5_connect_DC_v4 (_s._, sizeof (struct sockaddr_in));
-		}
-		else
-		if (self->u.sto->addr_len == 16)
-		{
-			/* IPv6 */
-			_s._ = calloc (1, sizeof (struct sockaddr_in6));
-			if (!_s._)
-				return -1;
-			_s.in6->sin6_family = PF_INET6;
-			memcpy (&(_s.in6->sin6_addr), self->u.sto->addr.ip, 16);
-			_s.in6->sin6_port = self->u.sto->port.p16;
-			sock = _S5_connect_DC_v6 (_s._, sizeof (struct sockaddr_in6));
-		}
-		if (_s._)
-			free (_s._);
-		eve = &(self->_s[0].evio);
-		ev_io_init (eve, clipair_dispatch_cb, sock, EV_READ);
-		ev_io_start (EV_A_ eve);
-		/* update event list */
-		return sock;
-	}
-	return -1;
-}
-
 static void
 output_cb_rem_ (struct _s_cony_t *cony, struct _s_cout_t *cout)
 {
@@ -639,6 +520,125 @@ clipair_wr_cb (EV_P_ ev_io *ev, struct S5tun_t *self, int dir)
 	}
 	/* free write event, if buffer == zero */
 	/* TODO: generate exception, remove from event list */
+}
+
+static inline void
+clipair_DC_rd_cb (EV_P_ ev_io *ev, struct S5tun_t *self)
+{
+	/* get s2c-traffic from server */
+	/* capture messages $ConnectToMe, $SR, $Search, $RevConnectToMe  */
+}
+
+/* connections */
+static int
+_S5_connect_DC_v4 (struct sockaddr *sa, size_t sasz)
+{
+	int sock;
+	sock = socket (PF_INET, SOCK_STREAM, 0);
+	if (sock != -1)
+	{
+		if (connect (sock, sa, sasz) == -1)
+		{
+			close (sock);
+			sock = -1;
+		}
+	}
+	return sock;
+}
+
+static int
+_S5_connect_DC_v6 (struct sockaddr *sa, size_t sasz)
+{
+	int sock;
+	sock = socket (PF_INET6, SOCK_STREAM, 0);
+	if (sock != -1)
+	{
+		if (connect (sock, sa, sasz) == -1)
+		{
+			close (sock);
+			sock = -1;
+		}
+	}
+	return -1;
+}
+
+static inline int
+S5_connect_DC (EV_P_ ev_io *ev, struct S5tun_t *self)
+{
+	ev_io *eve;
+	struct addrinfo hint; /* for matching */
+	struct addrinfo *air; /* root address info (for freeaddrinfo ()) */
+	struct addrinfo *aic; /* current address info */
+	char port[6];
+	int sock;
+	union
+	{
+		struct sockaddr *_;
+		struct sockaddr_in *in;
+		struct sockaddr_in6 *in6;
+	} _s;
+	if (self->state < STATE_DC)
+		return -1;
+	if (self->u.sto->atype == S5_AT_DN)
+	{
+		memset (&hint, 0, sizeof (struct addrinfo));
+		hint.ai_socktype = SOCK_STREAM;
+		snprintf (port, 6, "%u", self->u.sto->port.p16);
+		sock = -1;
+		if (!getaddrinfo (self->u.sto->addr.dn, port, &hint, &air))
+		{
+			for (aic = air; aic; aic = aic->ai_next)
+			{
+				if (aic->ai_family == AF_INET)
+					sock = _S5_connect_DC_v4 (aic->ai_addr,
+							sizeof (struct sockaddr_in));
+				else
+				if (aic->ai_family == AF_INET6)
+					sock = _S5_connect_DC_v6 (aic->ai_addr,
+							sizeof (struct sockaddr_in6));
+				if (sock != -1)
+					break;
+			}
+			freeaddrinfo (air);
+			return sock;
+		}
+	}
+	else
+	if (self->u.sto->atype == S5_AT_IP)
+	{
+		_s._ = NULL;
+		if (self->u.sto->addr_len == 4)
+		{
+			/* IPv4 */
+			_s._ = calloc (1, sizeof (struct sockaddr_in));
+			if (!_s._)
+			return -1;
+		_s.in->sin_family = PF_INET;
+		_s.in->sin_addr.s_addr = self->u.sto->addr.ipv4;
+		_s.in->sin_port = self->u.sto->port.p16;
+		sock = _S5_connect_DC_v4 (_s._, sizeof (struct sockaddr_in));
+		}
+		else
+		if (self->u.sto->addr_len == 16)
+		{
+			/* IPv6 */
+			_s._ = calloc (1, sizeof (struct sockaddr_in6));
+			if (!_s._)
+				return -1;
+			_s.in6->sin6_family = PF_INET6;
+			memcpy (&(_s.in6->sin6_addr), self->u.sto->addr.ip, 16);
+			_s.in6->sin6_port = self->u.sto->port.p16;
+			sock = _S5_connect_DC_v6 (_s._, sizeof (struct sockaddr_in6));
+		}
+		if (_s._)
+			free (_s._);
+		eve = &(self->_s[0].evio);
+		ev_io_init (eve, clipair_dispatch_cb, sock, EV_READ);
+		ev_io_start (EV_A_ eve);
+		/* update event list */
+		return sock;
+	}
+	return -1;
 }
 
 static inline size_t
